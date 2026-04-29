@@ -1,23 +1,31 @@
 import { useState } from 'react';
 import { Network, Maximize2 } from 'lucide-react';
 
+const getBackendUrl = () => {
+  const apiUrl = import.meta.env.VITE_API_URL;
+  if (!apiUrl) {
+    return 'http://localhost:7860';
+  }
+  return apiUrl;
+};
+
 export default function TSNEClusterPage() {
   const [version, setVersion] = useState('v1');
 
   const images = [
     {
       title: 't-SNE Group Clusters (Phân cụm các danh mục)',
-      url: `/api/figures/${version}/tsne_group_clusters_${version}.png`,
+      url: `${getBackendUrl()}/api/figures/${version}/tsne_group_clusters_${version}.png`,
       description: 'Hiển thị sự phân cụm của các danh mục địa điểm (Categories) dựa trên không gian nhúng của mô hình.'
     },
     {
       title: 't-SNE Clusters',
-      url: `/api/figures/${version}/tsne_clusters_${version}.jpg`,
+      url: `${getBackendUrl()}/api/figures/${version}/tsne_clusters_${version}.jpg`,
       description: 'Phân cụm t-SNE trên toàn bộ dữ liệu.'
     },
     {
       title: 'UMAP Clusters',
-      url: `/api/figures/${version}/umap_clusters_${version}.png`,
+      url: `${getBackendUrl()}/api/figures/${version}/umap_clusters_${version}.png`,
       description: 'Phân cụm sử dụng thuật toán UMAP để so sánh.'
     }
   ];
