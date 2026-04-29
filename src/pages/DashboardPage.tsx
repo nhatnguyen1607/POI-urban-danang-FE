@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Store, Map as MapIcon, Tags, Star, Loader2 } from 'lucide-react';
 import L from 'leaflet';
+import { apiClient } from '../utils/apiClient';
 
 // Fix leaflet icon issue in react
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -22,14 +23,13 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/eda?source=${source}`)
-      .then(res => res.json())
+    apiClient.get(`/api/eda?source=${source}`)
       .then(result => {
-        if (result.metrics) {
+        if (result && result.metrics) {
           setData(result);
         }
       })
-      .catch(err => console.error(err))
+      .catch(err => console.error('Failed to fetch EDA data:', err))
       .finally(() => setLoading(false));
   }, [source]);
 

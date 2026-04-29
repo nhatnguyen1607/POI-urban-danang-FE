@@ -10,6 +10,7 @@ import {
   Legend,
   ResponsiveContainer
 } from 'recharts';
+import { apiClient } from '../utils/apiClient';
 
 export default function ModelMetricsPage() {
   const [data, setData] = useState<any[]>([]);
@@ -18,26 +19,25 @@ export default function ModelMetricsPage() {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/metrics/training-loss?version=${version}`)
-      .then(res => res.json())
+    apiClient.get(`/api/metrics/training-loss?version=${version}`)
       .then(result => {
-        if (result.error) {
+        if (result && !result.error) {
+          // Parse strings to numbers
+          const formattedData = result.map((item: any) => ({
+            epoch: parseInt(item.epoch),
+            train_loss: parseFloat(item.train_loss),
+            test_loss: parseFloat(item.test_loss),
+            train_recall_5: parseFloat(item.train_recall_5),
+            test_recall_5: parseFloat(item.test_recall_5),
+            train_silhouette: parseFloat(item.train_silhouette),
+            test_silhouette: parseFloat(item.test_silhouette),
+          }));
+          setData(formattedData);
+        } else {
           setData([]);
-          return;
         }
-        // Parse strings to numbers
-        const formattedData = result.map((item: any) => ({
-          epoch: parseInt(item.epoch),
-          train_loss: parseFloat(item.train_loss),
-          test_loss: parseFloat(item.test_loss),
-          train_recall_5: parseFloat(item.train_recall_5),
-          test_recall_5: parseFloat(item.test_recall_5),
-          train_silhouette: parseFloat(item.train_silhouette),
-          test_silhouette: parseFloat(item.test_silhouette),
-        }));
-        setData(formattedData);
       })
-      .catch(err => console.error(err))
+      .catch(err => console.error('Failed to fetch metrics:', err))
       .finally(() => setLoading(false));
   }, [version]);
 

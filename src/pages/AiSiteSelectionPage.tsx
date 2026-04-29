@@ -3,6 +3,7 @@ import { UploadCloud, Search, MapPin, Sparkles, Loader2, Layers } from 'lucide-r
 import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { apiClient } from '../utils/apiClient';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -42,17 +43,7 @@ export default function AiSiteSelectionPage() {
         formData.append('image', imageFile);
       }
 
-      const response = await fetch('/api/recommend', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to analyze');
-      }
-
-      const data = await response.json();
+      const data = await apiClient.post('/api/recommend', formData);
       setResults(data);
     } catch (err: any) {
       setError(err.message || 'Lỗi kết nối tới máy chủ AI');

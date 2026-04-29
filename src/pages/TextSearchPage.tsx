@@ -3,6 +3,7 @@ import { Search, MapPin, Star, Layers, Loader2, Navigation, AlertTriangle, Check
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { apiClient } from '../utils/apiClient';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -90,12 +91,7 @@ export default function TextSearchPage() {
       const formData = new FormData();
       formData.append('concept', query);
       formData.append('modelVersion', modelVersion);
-      const response = await fetch('/api/recommend', { method: 'POST', body: formData });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to analyze');
-      }
-      setResults(await response.json());
+      setResults(await apiClient.post('/api/recommend', formData));
     } catch (err: any) {
       setError(err.message || 'Lỗi kết nối tới máy chủ AI');
       setResults([]);
@@ -115,16 +111,10 @@ export default function TextSearchPage() {
     setShowSteps(false);
     setShowTrace(false);
     try {
-      const response = await fetch('/api/route', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          origin: { lat: userLocation.lat, lng: userLocation.lng },
-          destination: { lat: poi.lat, lng: poi.lon },
-        }),
+      const data: RouteResult = await apiClient.post('/api/route', {
+        origin: { lat: userLocation.lat, lng: userLocation.lng },
+        destination: { lat: poi.lat, lng: poi.lon },
       });
-      if (!response.ok) throw new Error('Không thể tìm đường đi');
-      const data: RouteResult = await response.json();
       setRouteData(data);
       const coords: [number, number][] = data.route.coordinates.map((c: number[]) => [c[1], c[0]]);
       setRouteCoords(coords);
