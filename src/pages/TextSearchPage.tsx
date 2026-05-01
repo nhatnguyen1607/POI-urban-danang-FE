@@ -41,6 +41,7 @@ interface RouteResult {
     valid: boolean;
     warnings: any[];
     ruleTrace: any[];
+    fuzzyInsights?: any[];
     totalRulesChecked: number;
   };
 }
@@ -56,10 +57,10 @@ export default function TextSearchPage() {
   // Route & ES state
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
-  const [routeData, setRouteData] = useState<RouteResult | null>(null);
+  const [routes, setRoutes] = useState<RouteResult[]>([]);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [selectedPOI, setSelectedPOI] = useState<any>(null);
-  const [routeCoords, setRouteCoords] = useState<[number, number][]>([]);
   const [mapBounds, setMapBounds] = useState<L.LatLngBoundsExpression | null>(null);
   const [showSteps, setShowSteps] = useState(false);
   const [showTrace, setShowTrace] = useState(false);
@@ -84,9 +85,9 @@ export default function TextSearchPage() {
     setLoading(true);
     setHasSearched(true);
     setError(null);
-    setRouteData(null);
+    setRoutes([]);
     setSelectedPOI(null);
-    setRouteCoords([]);
+    setSelectedRouteIndex(0);
     try {
       const formData = new FormData();
       formData.append('concept', query);
@@ -106,19 +107,22 @@ export default function TextSearchPage() {
     setModalOpen(true);
     setRouteLoading(true);
     setRouteError(null);
-    setRouteData(null);
-    setRouteCoords([]);
+    setRoutes([]);
+    setSelectedRouteIndex(0);
     setShowSteps(false);
     setShowTrace(false);
     try {
-      const data: RouteResult = await apiClient.post('/api/route', {
+      const res: any = await apiClient.post('/api/route', {
         origin: { lat: userLocation.lat, lng: userLocation.lng },
         destination: { lat: poi.lat, lng: poi.lon },
       });
-      setRouteData(data);
-      const coords: [number, number][] = data.route.coordinates.map((c: number[]) => [c[1], c[0]]);
-      setRouteCoords(coords);
-      if (coords.length > 0) setMapBounds(L.latLngBounds(coords));
+      const dataRoutes = res.routes || [];
+      setRoutes(dataRoutes);
+      setSelectedRouteIndex(0);
+      if (dataRoutes.length > 0) {
+        const coords: [number, number][] = dataRoutes[0].route.coordinates.map((c: number[]) => [c[1], c[0]]);
+        setMapBounds(L.latLngBounds(coords));
+      }
     } catch (err: any) {
       setRouteError(err.message);
     } finally {
@@ -128,8 +132,7 @@ export default function TextSearchPage() {
 
   const closeModal = () => {
     setModalOpen(false);
-    setRouteData(null);
-    setRouteCoords([]);
+    setRoutes([]);
     setSelectedPOI(null);
     setRouteError(null);
   };
@@ -139,6 +142,8 @@ export default function TextSearchPage() {
     const mins = Math.round(s / 60);
     return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60} phút` : `${mins} phút`;
   };
+
+  const routeData = routes.length > 0 ? routes[selectedRouteIndex] : null;
 
   return (
     <div className="flex flex-col h-full space-y-8 animate-in fade-in duration-500 max-w-5xl mx-auto">
@@ -287,12 +292,24 @@ export default function TextSearchPage() {
                       <Popup><strong>🎯 {selectedPOI.name}</strong><br />{selectedPOI.district}</Popup>
                     </Marker>
                   )}
-                  {routeCoords.length > 0 && (
-                    <Polyline
-                      positions={routeCoords}
-                      pathOptions={{ color: routeData?.esValidation?.valid ? '#a855f7' : '#f59e0b', weight: 5, opacity: 0.9 }}
-                    />
-                  )}
+                  {routes.map((r, idx) => {
+                    const coords: [number, number][] = r.route.coordinates.map((c: number[]) => [c[1], c[0]]);
+                    const isSelected = idx === selectedRouteIndex;
+                    const color = r.esValidation?.valid ? '#a855f7' : '#f59e0b';
+                    return (
+                      <Polyline
+                        key={`route-${idx}`}
+                        positions={coords}
+                        pathOptions={{ color, weight: isSelected ? 7 : 4, opacity: isSelected ? 1 : 0.3 }}
+                        eventHandlers={{
+                          click: () => {
+                            setSelectedRouteIndex(idx);
+                            setMapBounds(L.latLngBounds(coords));
+                          }
+                        }}
+                      />
+                    );
+                  })}
                   {routeData?.esValidation?.warnings.map((w: any, i: number) => w.location && (
                     <Marker key={`warn-${i}`} position={[w.location.lat, w.location.lng]}>
                       <Popup><span style={{ color: 'red' }}>⚠️ {w.message}</span><br /><small>{w.law}</small></Popup>
@@ -309,6 +326,23 @@ export default function TextSearchPage() {
 
                 {routeData && (
                   <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {routes.length > 1 && (
+                      <div className="bg-gray-800/80 rounded-xl p-2 flex space-x-2">
+                        {routes.map((_, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => {
+                              setSelectedRouteIndex(idx);
+                              const coords: [number, number][] = routes[idx].route.coordinates.map((c: number[]) => [c[1], c[0]]);
+                              setMapBounds(L.latLngBounds(coords));
+                            }}
+                            className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors ${idx === selectedRouteIndex ? 'bg-purple-600 text-white shadow-md' : 'bg-transparent text-gray-400 hover:bg-gray-700'}`}
+                          >
+                            Tuyến {idx + 1}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {/* Stats */}
                     <div className="grid grid-cols-3 gap-2">
                       <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-3 text-center">
@@ -344,6 +378,24 @@ export default function TextSearchPage() {
                             <div>
                               <p className="text-gray-200">{w.message}</p>
                               <p className="text-gray-500 text-xs">{w.law}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Fuzzy Insights (Logic Mờ) */}
+                    {routeData.esValidation.fuzzyInsights && routeData.esValidation.fuzzyInsights.length > 0 && (
+                      <div className="bg-blue-900/10 border border-blue-500/30 rounded-xl p-4 space-y-2 mt-4">
+                        <h4 className="text-blue-400 font-bold flex items-center text-sm">
+                          <Layers size={14} className="mr-2" />Đánh giá Giao thông (Logic Mờ)
+                        </h4>
+                        {routeData.esValidation.fuzzyInsights.map((fi: any, i: number) => (
+                          <div key={i} className="flex items-start space-x-2 text-sm">
+                            <span className="mt-1.5 w-2 h-2 rounded-full flex-shrink-0 bg-blue-500" />
+                            <div>
+                              <p className="text-gray-200 font-medium">{fi.road}</p>
+                              <p className="text-blue-300/80 text-xs mt-0.5">{fi.label}</p>
                             </div>
                           </div>
                         ))}
