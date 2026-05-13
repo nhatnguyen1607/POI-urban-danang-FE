@@ -1,5 +1,6 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Map, Search, MapPin, LineChart, Network } from 'lucide-react';
+// import { LayoutDashboard, Map, Search, MapPin, LineChart, Network } from 'lucide-react';
+import { LayoutDashboard,  Search, MapPin } from 'lucide-react';
 
 export default function Layout() {
   const navItems = [
