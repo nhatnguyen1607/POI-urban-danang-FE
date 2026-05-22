@@ -1,13 +1,13 @@
 import { Outlet, NavLink } from 'react-router-dom';
-// import { LayoutDashboard, Map, Search, MapPin, LineChart, Network } from 'lucide-react';
-import { LayoutDashboard,  Search, MapPin } from 'lucide-react';
+import { LayoutDashboard, Map, Search, MapPin, LineChart, Network } from 'lucide-react';
+// import { LayoutDashboard,  Search, MapPin } from 'lucide-react';
 
 export default function Layout() {
   const navItems = [
     { name: 'Dashboard (EDA/POI)', path: '/', icon: <LayoutDashboard size={20} /> },
-    // { name: 'Chỉ số mô hình', path: '/model-metrics', icon: <LineChart size={20} /> },
-    // { name: 't-SNE Cluster', path: '/tsne-cluster', icon: <Network size={20} /> },
-    // { name: 'AI Site Selection', path: '/ai-site-selection', icon: <Map size={20} /> },
+    { name: 'Chỉ số mô hình', path: '/model-metrics', icon: <LineChart size={20} /> },
+    { name: 't-SNE Cluster', path: '/tsne-cluster', icon: <Network size={20} /> },
+    { name: 'AI Site Selection', path: '/ai-site-selection', icon: <Map size={20} /> },
     { name: 'Text Search', path: '/text-search', icon: <Search size={20} /> }
   ];
 
@@ -47,7 +47,7 @@ export default function Layout() {
           <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700/50 backdrop-blur-sm">
             <p className="text-xs text-gray-400 leading-relaxed">
               {/* <strong>Chuyên đề 2</strong><br/> */}
-              <strong>Hệ chuyên gia</strong><br/>
+              <strong>Học sâu</strong><br/>
               Khoa Khoa học Máy tính<br/>
               ĐH CNTT & TT Việt - Hàn (VKU)
             </p>

@@ -60,7 +60,7 @@ export default function AiSiteSelectionPage() {
             <Sparkles className="text-purple-400 mr-2" /> Trợ lý AI Gợi ý Địa điểm
           </h1>
           <p className="text-gray-400">
-            Sử dụng Mô hình Ngôn ngữ & Thị giác để phân tích ý tưởng (Ảnh + Chữ) và tìm kiếm mặt bằng phù hợp nhất tại Đà Nẵng.
+            Sử dụng Mô hình Ngôn ngữ & Thị giác để phân tích ý tưởng (Ảnh + Chữ) và gợi ý những khu vực phù hợp nhất tại Đà Nẵng.
           </p>
         </div>
         <div className="flex flex-col">
@@ -107,12 +107,14 @@ export default function AiSiteSelectionPage() {
                 {results.map((r: any, idx: number) => (
                   <div key={r.id} className="p-4 bg-gray-800/50 rounded-xl border border-gray-700/50">
                     <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-bold text-gray-100">Top {idx + 1}: {r.name}</h4>
+                      <div>
+                        <h4 className="font-bold text-gray-100">Top {idx + 1}: Gần khu vực {r.district}</h4>
+                        <p className="text-xs text-gray-500 mt-1">Tham khảo: {r.name}</p>
+                      </div>
                       <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-sm font-bold border border-emerald-500/20">
                         {r.score.toFixed(1)}%
                       </span>
                     </div>
-                    <p className="text-sm text-gray-400 mb-1">📍 {r.district}</p>
                     <p className="text-sm text-gray-500">🔎 {r.desc}</p>
                   </div>
                 ))}
@@ -154,7 +156,7 @@ export default function AiSiteSelectionPage() {
             {loading ? (
               <><Loader2 className="animate-spin mr-2" /> Đang phân tích Đa phương thức...</>
             ) : (
-              <><Search className="mr-2" /> Phân tích & Gợi ý Vị trí</>
+              <><Search className="mr-2" /> Gợi ý Khu vực Phù hợp</>
             )}
           </button>
         </div>

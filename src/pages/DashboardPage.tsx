@@ -90,7 +90,7 @@ export default function DashboardPage() {
               attribution='&copy; OpenStreetMap'
               url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
             />
-            {!loading && data.sampleData.slice(0, 50).map((poi: any, idx) => (
+            {!loading && data.sampleData.slice(0, 500).map((poi: any, idx) => (
               poi.lat && poi.lng && (
                 <Marker key={idx} position={[poi.lat, poi.lng]}>
                   <Popup>
