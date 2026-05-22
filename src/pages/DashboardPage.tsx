@@ -37,7 +37,7 @@ export default function DashboardPage() {
     { title: 'Tổng số Địa điểm', value: data.metrics.totalPOIs.toLocaleString(), icon: <Store className="text-blue-400" size={24} />, color: 'from-blue-500/20 to-blue-900/20' },
     { title: 'Số lượng Quận/Huyện', value: data.metrics.numDistricts.toString(), icon: <MapIcon className="text-emerald-400" size={24} />, color: 'from-emerald-500/20 to-emerald-900/20' },
     { title: 'Số lượng Danh mục', value: data.metrics.numCategories.toString(), icon: <Tags className="text-purple-400" size={24} />, color: 'from-purple-500/20 to-purple-900/20' },
-    { title: 'Điểm đánh giá TB', value: `${data.metrics.avgRating} / 10`, icon: <Star className="text-amber-400" size={24} />, color: 'from-amber-500/20 to-amber-900/20' },
+    { title: 'Điểm đánh giá TB', value: `${data.metrics.avgRating} / ${source === 'ggmap' ? 5 : 10}`, icon: <Star className="text-amber-400" size={24} />, color: 'from-amber-500/20 to-amber-900/20' },
   ];
 
   return (
