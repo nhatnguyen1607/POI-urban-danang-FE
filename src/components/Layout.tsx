@@ -47,7 +47,7 @@ export default function Layout() {
           <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700/50 backdrop-blur-sm">
             <p className="text-xs text-gray-400 leading-relaxed">
               {/* <strong>Chuyên đề 2</strong><br/> */}
-              <strong>Học sâu</strong><br/>
+              <strong>Chuyên đề 2</strong><br/>
               Khoa Khoa học Máy tính<br/>
               ĐH CNTT & TT Việt - Hàn (VKU)
             </p>
