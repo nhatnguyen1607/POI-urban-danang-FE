@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Loader2, TrendingDown, Target, Activity } from 'lucide-react';
 import {
   LineChart,
@@ -10,7 +10,7 @@ import {
   Legend,
   ResponsiveContainer
 } from 'recharts';
-import { apiClient } from '../utils/apiClient';
+import { apiClient } from '../../utils/apiClient';
 
 export default function ModelMetricsPage() {
   const [data, setData] = useState<any[]>([]);
@@ -45,11 +45,11 @@ export default function ModelMetricsPage() {
     <div className="flex flex-col h-full space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Chỉ số Mô hình</h1>
-          <p className="text-gray-400">Theo dõi quá trình huấn luyện mô hình qua các epoch</p>
+          <h1 className="text-3xl font-bold text-white mb-2">Chá»‰ sá»‘ MÃ´ hÃ¬nh</h1>
+          <p className="text-gray-400">Theo dÃµi quÃ¡ trÃ¬nh huáº¥n luyá»‡n mÃ´ hÃ¬nh qua cÃ¡c epoch</p>
         </div>
         <div className="flex flex-col">
-          <label className="text-gray-400 text-sm mb-1">Phiên bản Mô hình</label>
+          <label className="text-gray-400 text-sm mb-1">PhiÃªn báº£n MÃ´ hÃ¬nh</label>
           <select 
             className="bg-gray-800 text-white border border-gray-700 rounded-lg px-4 py-2 outline-none focus:border-purple-500 transition-colors"
             value={version}
@@ -76,7 +76,7 @@ export default function ModelMetricsPage() {
               <div className="p-2 bg-red-500/20 rounded-lg">
                 <TrendingDown className="text-red-400" size={24} />
               </div>
-              <h2 className="text-xl font-bold text-white">Loss (Hàm mất mát)</h2>
+              <h2 className="text-xl font-bold text-white">Loss (HÃ m máº¥t mÃ¡t)</h2>
             </div>
             <div className="h-80 w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -144,3 +144,4 @@ export default function ModelMetricsPage() {
     </div>
   );
 }
+

@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
-import { Search, MapPin, Star, Layers, Loader2, Navigation, AlertTriangle, CheckCircle, ChevronDown, ChevronUp, Route, Clock, Ruler, X } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+﻿import { useEffect, useState } from 'react';
+import type { WheelEvent } from 'react';
+import { UploadCloud, Search, MapPin, Sparkles, Loader2, Layers, AlertTriangle, CheckCircle, ChevronDown, ChevronUp, Route, Clock, Ruler, X } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup, Circle, Polyline, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { apiClient } from '../utils/apiClient';
+import { apiClient } from '../../utils/apiClient';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -32,6 +33,14 @@ function FitBounds({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
   return null;
 }
 
+function MapInstanceHandler({ onReady }: { onReady: (map: L.Map) => void }) {
+  const map = useMap();
+  useEffect(() => {
+    onReady(map);
+  }, [map, onReady]);
+  return null;
+}
+
 interface RouteResult {
   route: any;
   distance: number;
@@ -46,12 +55,13 @@ interface RouteResult {
   };
 }
 
-export default function TextSearchPage() {
-  const [query, setQuery] = useState('');
+export default function AiSiteSelectionPage() {
+  const [concept, setConcept] = useState('QuÃ¡n nháº­u vá»‰a hÃ¨, háº£i sáº£n tÆ°Æ¡i sá»‘ng, khÃ´ng gian má»Ÿ, á»“n Ã o nÃ¡o nhiá»‡t, giÃ¡ bÃ¬nh dÃ¢n');
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [modelVersion, setModelVersion] = useState('v4');
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<any[]>([]);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [results, setResults] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Route & ES state
@@ -64,8 +74,8 @@ export default function TextSearchPage() {
   const [mapBounds, setMapBounds] = useState<L.LatLngBoundsExpression | null>(null);
   const [showSteps, setShowSteps] = useState(false);
   const [showTrace, setShowTrace] = useState(false);
-  // Modal state
   const [modalOpen, setModalOpen] = useState(false);
+  const [mainMap, setMainMap] = useState<L.Map | null>(null);
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -79,27 +89,37 @@ export default function TextSearchPage() {
     }
   }, []);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim()) return;
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const url = URL.createObjectURL(file);
+      setImagePreview(url);
+      setImageFile(file);
+    }
+  };
+
+  const handleAnalyze = async () => {
     setLoading(true);
-    setHasSearched(true);
     setError(null);
-    setRoutes([]);
-    setSelectedPOI(null);
-    setSelectedRouteIndex(0);
+    setResults(null);
+    
     try {
       const formData = new FormData();
-      formData.append('concept', query);
+      formData.append('concept', concept);
       formData.append('modelVersion', modelVersion);
-      setResults(await apiClient.post('/api/recommend', formData));
+      if (imageFile) {
+        formData.append('image', imageFile);
+      }
+
+      const data = await apiClient.post('/api/recommend', formData);
+      setResults(data);
     } catch (err: any) {
-      setError(err.message || 'Lỗi kết nối tới máy chủ AI');
-      setResults([]);
+      setError(err.message || 'Lá»—i káº¿t ná»‘i tá»›i mÃ¡y chá»§ AI');
     } finally {
       setLoading(false);
     }
   };
+
 
   const handleGetRoute = async (poi: any) => {
     if (!userLocation) return;
@@ -140,105 +160,175 @@ export default function TextSearchPage() {
   const formatDistance = (m: number) => m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
   const formatDuration = (s: number) => {
     const mins = Math.round(s / 60);
-    return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60} phút` : `${mins} phút`;
+    return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60} phÃºt` : `${mins} phÃºt`;
   };
 
   const routeData = routes.length > 0 ? routes[selectedRouteIndex] : null;
 
-  return (
-    <div className="flex flex-col h-full space-y-8 animate-in fade-in duration-500 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="text-center mt-10">
-        <h1 className="text-4xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 mb-4 tracking-tight">
-          Tìm kiếm & Chỉ đường Thông minh
-        </h1>
-        <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-          AI gợi ý địa điểm + Hệ chuyên gia kiểm tra luật giao thông Đà Nẵng
-        </p>
-      </div>
+  const handleMainMapWheel = (e: WheelEvent<HTMLDivElement>) => {
+    if (!mainMap) return;
+    e.preventDefault();
+    if (e.deltaY < 0) {
+      mainMap.zoomIn();
+      return;
+    }
+    if (e.deltaY > 0) {
+      mainMap.zoomOut();
+    }
+  };
 
-      {/* Search bar */}
-      <div className="w-full max-w-3xl mx-auto flex flex-col items-center">
-        <form onSubmit={handleSearch} className="relative group w-full mb-4">
-          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <Search className="h-6 w-6 text-gray-500 group-focus-within:text-purple-400 transition-colors" />
-          </div>
-          <input
-            type="text"
-            className="block w-full pl-12 pr-32 py-5 bg-gray-900/80 border border-gray-700/80 rounded-full text-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent backdrop-blur-md shadow-2xl transition-all"
-            placeholder="Mô tả quán bạn muốn đến..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <button
-            type="submit"
-            disabled={loading || !query.trim()}
-            className="absolute right-2 top-2 bottom-2 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-full px-8 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+  return (
+    <div className="flex flex-col h-full space-y-6 animate-in fade-in duration-500">
+      <div className="flex justify-between items-end">
+        <div>
+          <h1 className="text-3xl font-bold text-white mb-2 flex items-center">
+            <Sparkles className="text-purple-400 mr-2" /> Trá»£ lÃ½ AI Gá»£i Ã½ Äá»‹a Ä‘iá»ƒm
+          </h1>
+          <p className="text-gray-400">
+            Sá»­ dá»¥ng MÃ´ hÃ¬nh NgÃ´n ngá»¯ & Thá»‹ giÃ¡c Ä‘á»ƒ phÃ¢n tÃ­ch Ã½ tÆ°á»Ÿng (áº¢nh + Chá»¯) vÃ  gá»£i Ã½ nhá»¯ng khu vá»±c phÃ¹ há»£p nháº¥t táº¡i ÄÃ  Náºµng.
+          </p>
+        </div>
+        <div className="flex flex-col">
+          <label className="text-gray-400 text-sm mb-1 flex items-center"><Layers size={14} className="mr-1"/> PhiÃªn báº£n Model</label>
+          <select 
+            className="bg-gray-800 text-white border border-gray-700 rounded-lg px-4 py-2 outline-none focus:border-purple-500 transition-colors font-medium"
+            value={modelVersion}
+            onChange={(e) => setModelVersion(e.target.value)}
           >
-            {loading ? <Loader2 className="animate-spin" size={20} /> : 'Tìm kiếm'}
-          </button>
-        </form>
-        <div className="flex items-center space-x-2 text-sm text-gray-400">
-          <Layers size={16} />
-          <span>Sử dụng Mô hình:</span>
-          <select className="bg-transparent text-purple-400 font-medium outline-none cursor-pointer" value={modelVersion} onChange={(e) => setModelVersion(e.target.value)}>
-            <option value="v4" className="bg-gray-900 text-white">Version 4 (Mới nhất)</option>
-            <option value="v3" className="bg-gray-900 text-white">Version 3</option>
-            <option value="v2" className="bg-gray-900 text-white">Version 2</option>
-            <option value="v1" className="bg-gray-900 text-white">Version 1</option>
+            <option value="v4">Version 4 (Latest - Recommended)</option>
+            <option value="v3">Version 3</option>
+            <option value="v2">Version 2</option>
+            <option value="v1">Version 1</option>
           </select>
         </div>
       </div>
 
-      {error && (
-        <div className="max-w-3xl mx-auto w-full p-4 bg-red-500/10 border border-red-500/50 rounded-xl text-red-400 text-center">{error}</div>
-      )}
-
-      {/* Results list */}
-      {hasSearched && !loading && results.length > 0 && (
-        <div className="mt-8 animate-in slide-in-from-bottom-8 duration-700">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl font-bold text-white">Kết quả phù hợp nhất</h3>
-            <div className="flex items-center space-x-3">
-              {userLocation && <span className="text-xs text-emerald-400 flex items-center"><Navigation size={12} className="mr-1" />Đã xác định vị trí</span>}
-              <span className="text-sm text-gray-400">Tìm thấy {results.length} địa điểm</span>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Inputs */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="p-6 bg-gray-900/60 border border-gray-800 rounded-2xl backdrop-blur-sm shadow-xl h-[280px] flex flex-col">
+            <label className="block text-sm font-medium text-gray-300 mb-2">ðŸ“ Nháº­p Ã½ tÆ°á»Ÿng quÃ¡n báº¡n muá»‘n má»Ÿ</label>
+            <textarea
+              className="w-full flex-1 bg-gray-950 border border-gray-700 rounded-xl p-4 text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all resize-none"
+              rows={4}
+              value={concept}
+              onChange={(e) => setConcept(e.target.value)}
+              placeholder="VÃ­ dá»¥: QuÃ¡n cafe lÃ£ng máº¡n, yÃªn tÄ©nh..."
+            />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {results.map((shop: any) => (
-              <div
-                key={shop.id}
-                onClick={() => handleGetRoute(shop)}
-                className="group p-6 rounded-2xl bg-gray-900/60 border border-gray-800 backdrop-blur-md hover:border-purple-500/50 hover:bg-gray-800/80 transition-all duration-300 hover:shadow-[0_8px_30px_rgba(168,85,247,0.15)] flex flex-col h-full cursor-pointer"
+
+          {error && (
+             <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-xl text-red-400">
+               {error}
+             </div>
+          )}
+
+          {results && results.length > 0 && (
+            <div
+              className="rounded-2xl overflow-hidden border border-gray-800 shadow-2xl relative z-0 min-h-[520px] h-[520px] animate-in slide-in-from-bottom-8 duration-700"
+              style={{ overscrollBehavior: 'contain' }}
+              onWheel={handleMainMapWheel}
+            >
+              <MapContainer 
+                center={[results[0]?.lat || 16.0544, results[0]?.lon || 108.2022]} 
+                zoom={13} 
+                scrollWheelZoom={false}
+                wheelDebounceTime={60}
+                wheelPxPerZoomLevel={60}
+                style={{ height: '100%', width: '100%', minHeight: '520px' }}
               >
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h4 className="text-xl font-bold text-gray-100 group-hover:text-purple-400 transition-colors line-clamp-1">{shop.name}</h4>
-                    <div className="flex items-center text-sm text-gray-400 mt-1"><MapPin size={14} className="mr-1" /> {shop.district}</div>
+                <MapInstanceHandler onReady={setMainMap} />
+                <TileLayer
+                  attribution='&copy; OpenStreetMap'
+                  url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                />
+                {results.map((r: any, idx: number) => (
+                  <div key={r.id}>
+                    <Marker position={[r.lat, r.lon]} eventHandlers={{ click: () => handleGetRoute(r) }}>
+                      <Popup>
+                        <strong>Top {idx + 1}: {r.name}</strong><br/>
+                        Äá»™ phÃ¹ há»£p: {r.score.toFixed(1)}%<br/>
+                        Quáº­n: {r.district}
+                      </Popup>
+                    </Marker>
+                    <Circle 
+                      center={[r.lat, r.lon]} 
+                      radius={500} 
+                      pathOptions={{ color: 'crimson', fillColor: 'crimson', fillOpacity: 0.2 }} 
+                    />
                   </div>
-                  <div className="bg-gray-950 px-3 py-1 rounded-full border border-gray-800 flex items-center flex-shrink-0">
-                    <Star size={14} className="text-amber-400 mr-1" />
-                    <span className="text-gray-200 font-medium">{shop.score.toFixed(1)}%</span>
-                  </div>
-                </div>
-                <p className="text-gray-400 text-sm flex-1 leading-relaxed line-clamp-3">"{shop.desc}"</p>
-                <div className="mt-6 pt-4 border-t border-gray-800/50 flex items-center justify-between">
-                  <span className="text-sm font-medium text-emerald-400">Gợi ý AI</span>
-                  <span className="text-xs text-purple-400 flex items-center"><Route size={12} className="mr-1" />Click để chỉ đường</span>
-                </div>
-              </div>
-            ))}
-          </div>
+                ))}
+              </MapContainer>
+            </div>
+          )}
         </div>
-      )}
 
-      {hasSearched && !loading && results.length === 0 && !error && (
-        <div className="text-center mt-12 animate-in fade-in">
-          <div className="inline-block p-4 rounded-full bg-gray-800/50 mb-4"><Search size={32} className="text-gray-500" /></div>
-          <h3 className="text-xl font-medium text-gray-300 mb-2">Không tìm thấy kết quả</h3>
-          <p className="text-gray-500">Thử thay đổi từ khóa mô tả để có kết quả tốt hơn.</p>
+        {/* Image Upload & Action */}
+        <div className="space-y-6">
+          <div className="p-6 bg-gray-900/60 border border-gray-800 rounded-2xl backdrop-blur-sm shadow-xl h-[280px] flex flex-col relative overflow-hidden group">
+            <h3 className="text-sm font-medium text-gray-300 mb-4 relative z-10">ðŸ–¼ï¸ Táº£i lÃªn áº£nh thiáº¿t káº¿/phong cÃ¡ch</h3>
+            
+            <label className="flex-1 border-2 border-dashed border-gray-700 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-purple-500/50 hover:bg-purple-500/5 transition-all relative z-10 bg-gray-950/50">
+              {imagePreview ? (
+                <div className="absolute inset-0 p-2">
+                  <img src={imagePreview} alt="Preview" className="w-full h-full object-cover rounded-lg" />
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <span className="text-white font-medium">Thay Ä‘á»•i áº£nh</span>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-gray-800 p-4 rounded-full mb-3 text-gray-400 group-hover:text-purple-400 transition-colors">
+                    <UploadCloud size={32} />
+                  </div>
+                  <span className="text-sm text-gray-400 font-medium">KÃ©o tháº£ hoáº·c Click Ä‘á»ƒ chá»n áº£nh</span>
+                </>
+              )}
+              <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+            </label>
+          </div>
+
+          <button
+            onClick={handleAnalyze}
+            disabled={loading || (!concept && !imageFile)}
+            className="w-full p-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-2xl font-bold shadow-lg shadow-purple-500/25 transition-all transform hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+          >
+            {loading ? (
+              <><Loader2 className="animate-spin mr-2" /> Äang phÃ¢n tÃ­ch Äa phÆ°Æ¡ng thá»©c...</>
+            ) : (
+              <><Search className="mr-2" /> Gá»£i Ã½ Khu vá»±c PhÃ¹ há»£p</>
+            )}
+          </button>
+
+          {results && results.length > 0 && (
+            <div className="p-5 bg-gray-900/60 border border-emerald-500/30 rounded-2xl backdrop-blur-sm shadow-[0_0_30px_rgba(16,185,129,0.1)]">
+              <h3 className="text-lg font-bold text-emerald-400 mb-3 flex items-center">
+                <MapPin className="mr-2" /> Káº¿t quáº£ phÃ¢n tÃ­ch hÃ ng Ä‘áº§u
+              </h3>
+              <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
+                {results.map((r: any, idx: number) => (
+                  <div
+                    key={r.id}
+                    onClick={() => handleGetRoute(r)}
+                    className="p-3 bg-gray-800/50 rounded-xl border border-gray-700/50 cursor-pointer hover:border-purple-500/50 hover:bg-gray-800/70 transition-all"
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h4 className="font-bold text-gray-100">Top {idx + 1}: Gáº§n khu vá»±c {r.district}</h4>
+                        <p className="text-xs text-gray-500 mt-1">Tham kháº£o: {r.name}</p>
+                      </div>
+                      <span className="bg-emerald-500/20 text-emerald-400 px-2.5 py-0.5 rounded-full text-xs font-bold border border-emerald-500/20">
+                        {r.score.toFixed(1)}%
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500">ðŸ”Ž {r.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* ===================== ROUTE MODAL ===================== */}
       {modalOpen && (
@@ -252,8 +342,8 @@ export default function TextSearchPage() {
               <div className="flex items-center space-x-3 min-w-0">
                 <div className="bg-purple-600 p-2 rounded-lg"><Route size={18} className="text-white" /></div>
                 <div className="min-w-0">
-                  <h2 className="text-lg font-bold text-white truncate">{selectedPOI?.name || 'Chỉ đường'}</h2>
-                  <p className="text-sm text-gray-400 truncate">📍 {selectedPOI?.district}</p>
+                  <h2 className="text-lg font-bold text-white truncate">{selectedPOI?.name || 'Chá»‰ Ä‘Æ°á»ng'}</h2>
+                  <p className="text-sm text-gray-400 truncate">ðŸ“ {selectedPOI?.district}</p>
                 </div>
               </div>
               <button onClick={closeModal} className="p-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors flex-shrink-0">
@@ -264,13 +354,13 @@ export default function TextSearchPage() {
             {/* Modal body */}
             <div className="flex flex-1 min-h-0 overflow-hidden">
               {/* Left: Map */}
-              <div className="flex-1 relative">
+              <div className="flex-1 relative" style={{ overscrollBehavior: 'contain' }}>
                 {routeLoading && (
                   <div className="absolute inset-0 z-[1000] bg-black/60 flex items-center justify-center backdrop-blur-sm">
                     <div className="flex flex-col items-center">
                       <Loader2 className="animate-spin text-purple-400 mb-3" size={40} />
-                      <span className="text-gray-300 font-medium">Hệ chuyên gia đang phân tích tuyến đường...</span>
-                      <span className="text-gray-500 text-sm mt-1">Kiểm tra luật giao thông Đà Nẵng</span>
+                      <span className="text-gray-300 font-medium">Há»‡ chuyÃªn gia Ä‘ang phÃ¢n tÃ­ch tuyáº¿n Ä‘Æ°á»ng...</span>
+                      <span className="text-gray-500 text-sm mt-1">Kiá»ƒm tra luáº­t giao thÃ´ng ÄÃ  Náºµng</span>
                     </div>
                   </div>
                 )}
@@ -284,12 +374,12 @@ export default function TextSearchPage() {
                   <FitBounds bounds={mapBounds} />
                   {userLocation && (
                     <Marker position={[userLocation.lat, userLocation.lng]} icon={originIcon}>
-                      <Popup><strong>📍 Vị trí của bạn</strong></Popup>
+                      <Popup><strong>ðŸ“ Vá»‹ trÃ­ cá»§a báº¡n</strong></Popup>
                     </Marker>
                   )}
                   {selectedPOI && (
                     <Marker position={[selectedPOI.lat, selectedPOI.lon]} icon={destIcon}>
-                      <Popup><strong>🎯 {selectedPOI.name}</strong><br />{selectedPOI.district}</Popup>
+                      <Popup><strong>ðŸŽ¯ {selectedPOI.name}</strong><br />{selectedPOI.district}</Popup>
                     </Marker>
                   )}
                   {routes.map((r, idx) => {
@@ -312,7 +402,7 @@ export default function TextSearchPage() {
                   })}
                   {routeData?.esValidation?.warnings.map((w: any, i: number) => w.location && (
                     <Marker key={`warn-${i}`} position={[w.location.lat, w.location.lng]}>
-                      <Popup><span style={{ color: 'red' }}>⚠️ {w.message}</span><br /><small>{w.law}</small></Popup>
+                      <Popup><span style={{ color: 'red' }}>âš ï¸ {w.message}</span><br /><small>{w.law}</small></Popup>
                     </Marker>
                   ))}
                 </MapContainer>
@@ -338,7 +428,7 @@ export default function TextSearchPage() {
                             }}
                             className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors ${idx === selectedRouteIndex ? 'bg-purple-600 text-white shadow-md' : 'bg-transparent text-gray-400 hover:bg-gray-700'}`}
                           >
-                            Tuyến {idx + 1}
+                            Tuyáº¿n {idx + 1}
                           </button>
                         ))}
                       </div>
@@ -348,21 +438,21 @@ export default function TextSearchPage() {
                       <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-3 text-center">
                         <Ruler size={16} className="mx-auto text-blue-400 mb-1" />
                         <div className="text-white font-bold text-sm">{formatDistance(routeData.distance)}</div>
-                        <div className="text-gray-500 text-[10px]">Khoảng cách</div>
+                        <div className="text-gray-500 text-[10px]">Khoáº£ng cÃ¡ch</div>
                       </div>
                       <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-3 text-center">
                         <Clock size={16} className="mx-auto text-emerald-400 mb-1" />
                         <div className="text-white font-bold text-sm">{formatDuration(routeData.duration)}</div>
-                        <div className="text-gray-500 text-[10px]">Thời gian</div>
+                        <div className="text-gray-500 text-[10px]">Thá»i gian</div>
                       </div>
                       <div className={`border rounded-xl p-3 text-center ${routeData.esValidation.valid ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-amber-900/20 border-amber-500/30'}`}>
                         {routeData.esValidation.valid
                           ? <CheckCircle size={16} className="mx-auto text-emerald-400 mb-1" />
                           : <AlertTriangle size={16} className="mx-auto text-amber-400 mb-1" />}
                         <div className={`font-bold text-sm ${routeData.esValidation.valid ? 'text-emerald-400' : 'text-amber-400'}`}>
-                          {routeData.esValidation.valid ? 'Hợp pháp' : `${routeData.esValidation.warnings.length} cảnh báo`}
+                          {routeData.esValidation.valid ? 'Há»£p phÃ¡p' : `${routeData.esValidation.warnings.length} cáº£nh bÃ¡o`}
                         </div>
-                        <div className="text-gray-500 text-[10px]">Hệ chuyên gia</div>
+                        <div className="text-gray-500 text-[10px]">Há»‡ chuyÃªn gia</div>
                       </div>
                     </div>
 
@@ -370,7 +460,7 @@ export default function TextSearchPage() {
                     {routeData.esValidation.warnings.length > 0 && (
                       <div className="bg-amber-900/10 border border-amber-500/30 rounded-xl p-4 space-y-2">
                         <h4 className="text-amber-400 font-bold flex items-center text-sm">
-                          <AlertTriangle size={14} className="mr-2" />Cảnh báo luật giao thông
+                          <AlertTriangle size={14} className="mr-2" />Cáº£nh bÃ¡o luáº­t giao thÃ´ng
                         </h4>
                         {routeData.esValidation.warnings.map((w: any, i: number) => (
                           <div key={i} className="flex items-start space-x-2 text-sm">
@@ -384,11 +474,11 @@ export default function TextSearchPage() {
                       </div>
                     )}
 
-                    {/* Fuzzy Insights (Logic Mờ) */}
+                    {/* Fuzzy Insights (Logic Má») */}
                     {routeData.esValidation.fuzzyInsights && routeData.esValidation.fuzzyInsights.length > 0 && (
                       <div className="bg-blue-900/10 border border-blue-500/30 rounded-xl p-4 space-y-2 mt-4">
                         <h4 className="text-blue-400 font-bold flex items-center text-sm">
-                          <Layers size={14} className="mr-2" />Đánh giá Giao thông (Logic Mờ)
+                          <Layers size={14} className="mr-2" />ÄÃ¡nh giÃ¡ Giao thÃ´ng (Logic Má»)
                         </h4>
                         {routeData.esValidation.fuzzyInsights.map((fi: any, i: number) => (
                           <div key={i} className="flex items-start space-x-2 text-sm">
@@ -405,7 +495,7 @@ export default function TextSearchPage() {
                     {/* Steps */}
                     <div>
                       <button onClick={() => setShowSteps(!showSteps)} className="w-full flex items-center justify-between p-3 bg-gray-800/60 border border-gray-700/50 rounded-xl text-sm text-gray-300 hover:bg-gray-700/60 transition-colors">
-                        <span className="flex items-center"><Route size={14} className="mr-2 text-purple-400" />Hướng dẫn chỉ đường ({routeData.steps.length} bước)</span>
+                        <span className="flex items-center"><Route size={14} className="mr-2 text-purple-400" />HÆ°á»›ng dáº«n chá»‰ Ä‘Æ°á»ng ({routeData.steps.length} bÆ°á»›c)</span>
                         {showSteps ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                       </button>
                       {showSteps && (
@@ -423,7 +513,7 @@ export default function TextSearchPage() {
                     {/* Rule trace */}
                     <div>
                       <button onClick={() => setShowTrace(!showTrace)} className="w-full flex items-center justify-between p-3 bg-gray-800/60 border border-gray-700/50 rounded-xl text-sm text-gray-300 hover:bg-gray-700/60 transition-colors">
-                        <span className="flex items-center"><Search size={14} className="mr-2 text-cyan-400" />Quá trình suy diễn lùi ({routeData.esValidation.ruleTrace.length} bước)</span>
+                        <span className="flex items-center"><Search size={14} className="mr-2 text-cyan-400" />QuÃ¡ trÃ¬nh suy diá»…n lÃ¹i ({routeData.esValidation.ruleTrace.length} bÆ°á»›c)</span>
                         {showTrace ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                       </button>
                       {showTrace && (
@@ -445,7 +535,7 @@ export default function TextSearchPage() {
                   <div className="flex-1 flex items-center justify-center">
                     <div className="text-center">
                       <Loader2 className="animate-spin text-purple-400 mx-auto mb-3" size={28} />
-                      <p className="text-gray-400 text-sm">Đang tìm đường...</p>
+                      <p className="text-gray-400 text-sm">Äang tÃ¬m Ä‘Æ°á»ng...</p>
                     </div>
                   </div>
                 )}
@@ -457,3 +547,4 @@ export default function TextSearchPage() {
     </div>
   );
 }
+

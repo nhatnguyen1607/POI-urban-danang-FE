@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Store, Map as MapIcon, Tags, Star, Loader2 } from 'lucide-react';
 import L from 'leaflet';
-import { apiClient } from '../utils/apiClient';
+import { apiClient } from '../../utils/apiClient';
 
 // Fix leaflet icon issue in react
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -34,21 +34,21 @@ export default function DashboardPage() {
   }, [source]);
 
   const metrics = [
-    { title: 'Tổng số Địa điểm', value: data.metrics.totalPOIs.toLocaleString(), icon: <Store className="text-blue-400" size={24} />, color: 'from-blue-500/20 to-blue-900/20' },
-    { title: 'Số lượng Quận/Huyện', value: data.metrics.numDistricts.toString(), icon: <MapIcon className="text-emerald-400" size={24} />, color: 'from-emerald-500/20 to-emerald-900/20' },
-    { title: 'Số lượng Danh mục', value: data.metrics.numCategories.toString(), icon: <Tags className="text-purple-400" size={24} />, color: 'from-purple-500/20 to-purple-900/20' },
-    { title: 'Điểm đánh giá TB', value: `${data.metrics.avgRating} / ${source === 'ggmap' ? 5 : 10}`, icon: <Star className="text-amber-400" size={24} />, color: 'from-amber-500/20 to-amber-900/20' },
+    { title: 'Tá»•ng sá»‘ Äá»‹a Ä‘iá»ƒm', value: data.metrics.totalPOIs.toLocaleString(), icon: <Store className="text-blue-400" size={24} />, color: 'from-blue-500/20 to-blue-900/20' },
+    { title: 'Sá»‘ lÆ°á»£ng Quáº­n/Huyá»‡n', value: data.metrics.numDistricts.toString(), icon: <MapIcon className="text-emerald-400" size={24} />, color: 'from-emerald-500/20 to-emerald-900/20' },
+    { title: 'Sá»‘ lÆ°á»£ng Danh má»¥c', value: data.metrics.numCategories.toString(), icon: <Tags className="text-purple-400" size={24} />, color: 'from-purple-500/20 to-purple-900/20' },
+    { title: 'Äiá»ƒm Ä‘Ã¡nh giÃ¡ TB', value: `${data.metrics.avgRating} / ${source === 'ggmap' ? 5 : 10}`, icon: <Star className="text-amber-400" size={24} />, color: 'from-amber-500/20 to-amber-900/20' },
   ];
 
   return (
     <div className="flex flex-col h-full space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Thông tin POI (EDA)</h1>
-          <p className="text-gray-400">Khám phá và phân tích không gian đô thị Đà Nẵng</p>
+          <h1 className="text-3xl font-bold text-white mb-2">ThÃ´ng tin POI (EDA)</h1>
+          <p className="text-gray-400">KhÃ¡m phÃ¡ vÃ  phÃ¢n tÃ­ch khÃ´ng gian Ä‘Ã´ thá»‹ ÄÃ  Náºµng</p>
         </div>
         <div className="flex flex-col">
-          <label className="text-gray-400 text-sm mb-1">Nguồn dữ liệu</label>
+          <label className="text-gray-400 text-sm mb-1">Nguá»“n dá»¯ liá»‡u</label>
           <select 
             className="bg-gray-800 text-white border border-gray-700 rounded-lg px-4 py-2 outline-none focus:border-blue-500 transition-colors"
             value={source}
@@ -96,7 +96,7 @@ export default function DashboardPage() {
                   <Popup>
                     <strong>{poi.name}</strong><br/>
                     {poi.category}<br/>
-                    Đánh giá: {poi.rating || 'N/A'}
+                    ÄÃ¡nh giÃ¡: {poi.rating || 'N/A'}
                   </Popup>
                 </Marker>
               )
@@ -107,10 +107,10 @@ export default function DashboardPage() {
         {/* Data Table Placeholder */}
         <div className="rounded-2xl border border-gray-800 bg-gray-900/50 backdrop-blur-md p-6 shadow-xl flex flex-col relative overflow-hidden">
           {loading && <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm z-10 flex items-center justify-center"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>}
-          <h3 className="text-xl font-bold text-white mb-4">Dữ liệu nổi bật</h3>
+          <h3 className="text-xl font-bold text-white mb-4">Dá»¯ liá»‡u ná»•i báº­t</h3>
           <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
             {data.sampleData.length === 0 && !loading && (
-              <p className="text-gray-500 text-center mt-10">Không có dữ liệu</p>
+              <p className="text-gray-500 text-center mt-10">KhÃ´ng cÃ³ dá»¯ liá»‡u</p>
             )}
             {data.sampleData.map((poi: any, i) => (
               <div key={i} className="p-4 rounded-xl bg-gray-800/50 border border-gray-700/50 hover:bg-gray-800 transition-colors cursor-pointer">
@@ -121,7 +121,7 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <div className="text-sm text-gray-400 flex justify-between items-center">
-                  <span className="truncate pr-2">{poi.address || 'Đà Nẵng'}</span>
+                  <span className="truncate pr-2">{poi.address || 'ÄÃ  Náºµng'}</span>
                   {poi.category && (
                     <span className="text-purple-400 bg-purple-400/10 px-2 py-0.5 rounded text-xs whitespace-nowrap">
                       {poi.category.split(',')[0]}
@@ -136,3 +136,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+

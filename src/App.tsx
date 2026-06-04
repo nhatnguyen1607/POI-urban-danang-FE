@@ -1,10 +1,10 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+﻿import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
-import DashboardPage from './pages/DashboardPage';
-import AiSiteSelectionPage from './pages/AiSiteSelectionPage';
-import TextSearchPage from './pages/TextSearchPage';
-import ModelMetricsPage from './pages/ModelMetricsPage';
-import TSNEClusterPage from './pages/TSNEClusterPage';
+import DashboardPage from './pages/dashboard/DashboardPage';
+import AiSiteSelectionPage from './pages/traveler/AiSiteSelectionPage';
+import TextSearchPage from './pages/search/TextSearchPage';
+import ModelMetricsPage from './pages/analytics/ModelMetricsPage';
+import TSNEClusterPage from './pages/analytics/TSNEClusterPage';
 
 function App() {
   return (
@@ -23,3 +23,4 @@ function App() {
 }
 
 export default App;
+
