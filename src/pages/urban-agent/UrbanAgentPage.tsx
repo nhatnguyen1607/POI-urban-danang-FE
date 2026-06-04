@@ -16,9 +16,21 @@ import {
   ThumbsUp,
   Trash2,
   Users,
+  UploadCloud,
+  X,
 } from 'lucide-react';
+import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { apiClient } from '../../utils/apiClient';
 import { useLanguage } from '../../i18n/LanguageContext';
+
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 type Role = 'traveler' | 'business';
 
@@ -104,7 +116,45 @@ interface ExpertRoute {
   steps?: { instruction?: string; instructions?: string; distance?: number; duration?: number }[];
 }
 
+interface RouteResult {
+  route: { coordinates: number[][] };
+  distance: number;
+  duration: number;
+  steps: { instruction?: string; instructions?: string }[];
+  esValidation: {
+    valid: boolean;
+    warnings: { message?: string; law?: string; severity?: string; location?: { lat: number; lng: number } }[];
+    ruleTrace?: { step?: string; description?: string }[];
+    fuzzyInsights?: { road?: string; label?: string }[];
+    totalRulesChecked?: number;
+  };
+}
+
 const DA_NANG_CENTER = { lat: 16.0544, lon: 108.2022 };
+const originIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+const destIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+function FitBounds({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (bounds) map.fitBounds(bounds, { padding: [44, 44] });
+  }, [bounds, map]);
+  return null;
+}
 
 const copy = {
   vi: {
@@ -130,6 +180,25 @@ const copy = {
     editable: 'Có thể thêm/xóa điểm trong MVP',
     emptyItinerary: 'Chạy agent để tạo lịch trình.',
     addable: 'POI có thể thêm',
+    multimodalSearch: 'Tìm địa điểm bằng mô tả hoặc ảnh',
+    imageHint: 'Thêm ảnh phong cách/quán mẫu',
+    chooseImage: 'Chọn ảnh',
+    changeImage: 'Đổi ảnh',
+    routeMapTitle: 'Bản đồ chỉ đường AI',
+    routeMapHint: 'Hệ chuyên gia phân tích tuyến đường, luật giao thông và cảnh báo rủi ro.',
+    routeLegal: 'Hợp pháp',
+    routeWarnings: 'cảnh báo',
+    tripDuration: 'Thời lượng đi chơi',
+    fullRoute: 'Xem toàn bộ lộ trình',
+    fullRouteTitle: 'Toàn bộ lộ trình',
+    hours2: '2 giờ',
+    hours3: '3 giờ',
+    hours4: '4 giờ',
+    hours6: '6 giờ',
+    stopLabel: 'Điểm dừng',
+    avoidSegment: 'Đoạn cần lưu ý',
+    routeSteps: 'Hướng dẫn từng bước',
+    routeFuzzy: 'Đánh giá giao thông',
     routePanel: 'Route hệ chuyên gia',
     routeHint: 'Bấm “Route AI” ở từng POI để xem hướng dẫn nội bộ trước khi mở Google Maps.',
     routeAi: 'Route AI',
@@ -163,7 +232,7 @@ const copy = {
     competition: 'Cạnh tranh',
     topCategories: 'Danh mục nổi bật',
     samplePois: 'POI mẫu',
-    noExtra: 'Chưa có POI bổ sung không trùng lịch trình.',
+    noExtra: 'Chưa có địa điểm bổ sung không trùng lịch trình.',
   },
   en: {
     heroBadge: 'Intent - Plan - Tools - Route - Memory - Market Signal',
@@ -187,7 +256,26 @@ const copy = {
     itinerary: 'Agent itinerary',
     editable: 'Stops can be added or removed in the MVP',
     emptyItinerary: 'Run the agent to create an itinerary.',
-    addable: 'POIs you can add',
+    addable: 'Places you can add to the trip',
+    multimodalSearch: 'Find places by text or image',
+    imageHint: 'Add a style/reference image',
+    chooseImage: 'Choose image',
+    changeImage: 'Change image',
+    routeMapTitle: 'AI route map',
+    routeMapHint: 'The expert system analyzes route geometry, traffic rules and risk warnings.',
+    routeLegal: 'Valid',
+    routeWarnings: 'warnings',
+    tripDuration: 'Trip duration',
+    fullRoute: 'View full route',
+    fullRouteTitle: 'Full itinerary route',
+    hours2: '2 hours',
+    hours3: '3 hours',
+    hours4: '4 hours',
+    hours6: '6 hours',
+    stopLabel: 'Stop',
+    avoidSegment: 'Segment warning',
+    routeSteps: 'Step-by-step directions',
+    routeFuzzy: 'Traffic assessment',
     routePanel: 'Expert route',
     routeHint: 'Press “AI Route” on a POI to inspect in-app route guidance before opening Google Maps.',
     routeAi: 'AI Route',
@@ -221,7 +309,7 @@ const copy = {
     competition: 'Competition',
     topCategories: 'Top categories',
     samplePois: 'Sample POIs',
-    noExtra: 'No additional non-duplicate POIs yet.',
+    noExtra: 'No additional non-duplicate places yet.',
   },
 };
 
@@ -242,6 +330,7 @@ export default function UrbanAgentPage() {
   const [role, setRole] = useState<Role>('traveler');
   const [query, setQuery] = useState(t.travelerSample);
   const [transport, setTransport] = useState('motorbike');
+  const [tripDurationMinutes, setTripDurationMinutes] = useState(240);
   const [loading, setLoading] = useState(false);
   const [routeLoadingId, setRouteLoadingId] = useState('');
   const [error, setError] = useState('');
@@ -250,6 +339,15 @@ export default function UrbanAgentPage() {
   const [businessAreas, setBusinessAreas] = useState<BusinessArea[]>([]);
   const [weather, setWeather] = useState<any>(null);
   const [expertRoute, setExpertRoute] = useState<ExpertRoute | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState('');
+  const [modelVersion, setModelVersion] = useState('v4');
+  const [routeModalOpen, setRouteModalOpen] = useState(false);
+  const [routeRoutes, setRouteRoutes] = useState<RouteResult[]>([]);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
+  const [routeBounds, setRouteBounds] = useState<L.LatLngBoundsExpression | null>(null);
+  const [selectedRoutePoi, setSelectedRoutePoi] = useState<PoiResult | null>(null);
+  const [routeStops, setRouteStops] = useState<PoiResult[]>([]);
 
   useEffect(() => {
     setQuery(roleCopy[role].sample);
@@ -258,6 +356,8 @@ export default function UrbanAgentPage() {
     setItinerary([]);
     setBusinessAreas([]);
     setExpertRoute(null);
+    setRouteModalOpen(false);
+    setRouteStops([]);
   }, [role, roleCopy]);
 
   const context = useMemo(() => ({ location: DA_NANG_CENTER }), []);
@@ -270,30 +370,83 @@ export default function UrbanAgentPage() {
     }
   };
 
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const convertLegacyResults = (items: any[] = []): PoiResult[] =>
+    items.map((item, index) => ({
+      id: item.id || `legacy-${index}`,
+      type: 'poi',
+      title: item.name || item.title || `Địa điểm ${index + 1}`,
+      name: item.name || item.title || `Địa điểm ${index + 1}`,
+      category: item.category || item.district || 'Địa điểm gợi ý',
+      district: item.district || 'Đà Nẵng',
+      lat: Number(item.lat) || DA_NANG_CENTER.lat,
+      lon: Number(item.lon || item.lng) || DA_NANG_CENTER.lon,
+      rating: item.rating,
+      score: Math.round(Number(item.score || 0)),
+      reason: item.desc || item.reason || 'Gợi ý từ mô hình đa phương thức Version 4.',
+      actions: [
+        {
+          type: 'map',
+          label: 'Google Maps',
+          url: `https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lon || item.lng}`,
+        },
+      ],
+    }));
+
   const runAgent = async () => {
     setLoading(true);
     setError('');
     setExpertRoute(null);
     try {
       if (role === 'traveler') {
-        const [itineraryData, recommendationData, weatherData] = await Promise.allSettled([
-          apiClient.post('/api/agent/create-itinerary', { query, context, transport, limit: 4 }),
+        const formData = new FormData();
+        formData.append('concept', query);
+        formData.append('modelVersion', modelVersion);
+        if (imageFile) formData.append('image', imageFile);
+        const [itineraryData, recommendationData, weatherData, multimodalData] = await Promise.allSettled([
+          apiClient.post('/api/agent/create-itinerary', {
+            query,
+            context: { ...context, durationMinutes: tripDurationMinutes },
+            transport,
+            limit: 6,
+            durationMinutes: tripDurationMinutes,
+          }),
           apiClient.post('/api/agent/recommend-poi', { query, context, limit: 14 }),
           apiClient.get(`/api/weather/forecast?lat=${DA_NANG_CENTER.lat}&lon=${DA_NANG_CENTER.lon}`),
+          apiClient.post('/api/recommend', formData),
         ]);
 
         if (itineraryData.status !== 'fulfilled') throw itineraryData.reason;
         const nextItinerary = itineraryData.value.itinerary || [];
         const usedIds = new Set(nextItinerary.map((item: ItineraryItem) => item.poi.id));
-        const extras =
+        const semanticExtras =
           recommendationData.status === 'fulfilled'
             ? (recommendationData.value.results || []).filter((poi: PoiResult) => !usedIds.has(poi.id))
             : [];
+        const multimodalExtras =
+          multimodalData.status === 'fulfilled'
+            ? convertLegacyResults(multimodalData.value || []).filter((poi) => !usedIds.has(poi.id))
+            : [];
+        const mergedExtras = [...semanticExtras, ...multimodalExtras].filter(
+          (poi, index, items) => items.findIndex((item) => item.id === poi.id) === index,
+        );
 
         setItinerary(nextItinerary);
-        setPoiResults(extras);
         if (weatherData.status === 'fulfilled') setWeather(weatherData.value);
-        recordFeedback('agent_run_traveler', { itinerarySize: nextItinerary.length, extraSize: extras.length });
+        setPoiResults(mergedExtras);
+        recordFeedback('agent_run_traveler', {
+          itinerarySize: nextItinerary.length,
+          extraSize: mergedExtras.length,
+          multimodalSize: multimodalExtras.length,
+          hasImage: Boolean(imageFile),
+        });
       } else {
         const data = await apiClient.post('/api/agent/business-insight', {
           concept: query,
@@ -342,12 +495,24 @@ export default function UrbanAgentPage() {
   const loadExpertRoute = async (poi: PoiResult) => {
     setRouteLoadingId(poi.id);
     setExpertRoute(null);
+    setSelectedRoutePoi(poi);
+    setRouteRoutes([]);
+    setRouteBounds(null);
+    setSelectedRouteIndex(0);
+    setRouteStops([poi]);
+    setRouteModalOpen(true);
     try {
       const data = await apiClient.post('/api/route', {
         origin: { lat: DA_NANG_CENTER.lat, lng: DA_NANG_CENTER.lon },
         destination: { lat: poi.lat, lng: poi.lon },
       });
       const bestRoute = data.routes?.[0] || data;
+      const routes = data.routes || [];
+      setRouteRoutes(routes);
+      if (routes[0]?.route?.coordinates?.length) {
+        const coords = routes[0].route.coordinates.map((coord: number[]) => [coord[1], coord[0]]) as [number, number][];
+        setRouteBounds(L.latLngBounds(coords));
+      }
       setExpertRoute({
         destination: poi,
         distance: bestRoute.distance ? `${(bestRoute.distance / 1000).toFixed(1)} km` : undefined,
@@ -363,6 +528,40 @@ export default function UrbanAgentPage() {
         valid: false,
         warnings: [err?.message || 'Không thể tính route bằng hệ chuyên gia.'],
       });
+    } finally {
+      setRouteLoadingId('');
+    }
+  };
+
+  const loadFullItineraryRoute = async () => {
+    if (!itinerary.length) return;
+    setSelectedRoutePoi(null);
+    setRouteStops(itinerary.map((item) => item.poi));
+    setRouteRoutes([]);
+    setRouteBounds(null);
+    setSelectedRouteIndex(0);
+    setRouteModalOpen(true);
+    setRouteLoadingId('full-itinerary');
+    try {
+      const segments: RouteResult[] = [];
+      let origin = { lat: DA_NANG_CENTER.lat, lng: DA_NANG_CENTER.lon };
+      for (const item of itinerary) {
+        const data = await apiClient.post('/api/route', {
+          origin,
+          destination: { lat: item.poi.lat, lng: item.poi.lon },
+        });
+        const best = data.routes?.[0];
+        if (best) segments.push(best);
+        origin = { lat: item.poi.lat, lng: item.poi.lon };
+      }
+      setRouteRoutes(segments);
+      const allCoords = segments.flatMap((segment) =>
+        segment.route.coordinates.map((coord: number[]) => [coord[1], coord[0]] as [number, number]),
+      );
+      if (allCoords.length) setRouteBounds(L.latLngBounds(allCoords));
+      recordFeedback('full_itinerary_route_requested', { stopCount: itinerary.length });
+    } catch (err: any) {
+      setError(err?.message || 'Không thể tính toàn bộ lộ trình.');
     } finally {
       setRouteLoadingId('');
     }
@@ -418,16 +617,65 @@ export default function UrbanAgentPage() {
           />
 
           {role === 'traveler' && (
-            <div className="mt-4">
-              <label className="mb-2 block text-sm font-medium text-slate-300">{t.transport}</label>
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-300">{t.transport}</label>
+                <select
+                  value={transport}
+                  onChange={(event) => setTransport(event.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                >
+                  <option value="motorbike">{t.motorbike}</option>
+                  <option value="car">{t.car}</option>
+                  <option value="walking">{t.walking}</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-300">{t.tripDuration}</label>
+                <select
+                  value={tripDurationMinutes}
+                  onChange={(event) => setTripDurationMinutes(Number(event.target.value))}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                >
+                  <option value={120}>{t.hours2}</option>
+                  <option value={180}>{t.hours3}</option>
+                  <option value={240}>{t.hours4}</option>
+                  <option value={360}>{t.hours6}</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-300">{t.multimodalSearch}</label>
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <label className="flex min-h-[92px] cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-700 bg-slate-900 p-3 text-sm text-slate-400 transition hover:border-cyan-400 hover:bg-slate-800">
+                    {imagePreview ? (
+                      <img src={imagePreview} alt="Preview" className="h-16 w-16 rounded-lg object-cover" />
+                    ) : (
+                      <span className="rounded-xl bg-slate-800 p-3 text-cyan-200">
+                        <UploadCloud size={22} />
+                      </span>
+                    )}
+                    <span>
+                      <span className="block font-medium text-slate-200">
+                        {imagePreview ? t.changeImage : t.chooseImage}
+                      </span>
+                      <span>{t.imageHint}</span>
+                    </span>
+                    <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+                  </label>
+                </div>
+              </div>
+
               <select
-                value={transport}
-                onChange={(event) => setTransport(event.target.value)}
+                value={modelVersion}
+                onChange={(event) => setModelVersion(event.target.value)}
                 className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
               >
-                <option value="motorbike">{t.motorbike}</option>
-                <option value="car">{t.car}</option>
-                <option value="walking">{t.walking}</option>
+                <option value="v4">Version 4 - multimodal recommended</option>
+                <option value="v3">Version 3</option>
+                <option value="v2">Version 2</option>
+                <option value="v1">Version 1</option>
               </select>
             </div>
           )}
@@ -469,9 +717,19 @@ export default function UrbanAgentPage() {
             </div>
 
             <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-white">{t.itinerary}</h2>
-                <span className="text-sm text-slate-400">{t.editable}</span>
+              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold text-white">{t.itinerary}</h2>
+                  <span className="text-sm text-slate-400">{t.editable}</span>
+                </div>
+                <button
+                  onClick={loadFullItineraryRoute}
+                  disabled={!itinerary.length || Boolean(routeLoadingId)}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-500/15 px-4 py-2 text-sm font-semibold text-purple-100 transition hover:bg-purple-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {routeLoadingId === 'full-itinerary' ? <Loader2 className="animate-spin" size={16} /> : <Route size={16} />}
+                  {t.fullRoute}
+                </button>
               </div>
               <div className="space-y-3">
                 {itinerary.length === 0 && <EmptyState text={t.emptyItinerary} />}
@@ -611,6 +869,24 @@ export default function UrbanAgentPage() {
           </div>
         )}
       </section>
+      <RouteMapModal
+        open={routeModalOpen}
+        routes={routeRoutes}
+        selectedIndex={selectedRouteIndex}
+        selectedPoi={selectedRoutePoi}
+        routeStops={routeStops}
+        bounds={routeBounds}
+        loading={Boolean(routeLoadingId)}
+        text={t}
+        onClose={() => setRouteModalOpen(false)}
+        onSelectRoute={(index) => {
+          setSelectedRouteIndex(index);
+          const coords = routeRoutes[index]?.route?.coordinates?.map((coord: number[]) => [coord[1], coord[0]]) as
+            | [number, number][]
+            | undefined;
+          if (coords?.length) setRouteBounds(L.latLngBounds(coords));
+        }}
+      />
     </div>
   );
 }
@@ -738,6 +1014,199 @@ function EmptyState({ text }: { text: string }) {
   return (
     <div className="flex min-h-[120px] items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/50 px-4 text-center text-sm text-slate-400">
       {text}
+    </div>
+  );
+}
+
+function RouteMapModal({
+  open,
+  routes,
+  selectedIndex,
+  selectedPoi,
+  routeStops,
+  bounds,
+  loading,
+  text,
+  onClose,
+  onSelectRoute,
+}: {
+  open: boolean;
+  routes: RouteResult[];
+  selectedIndex: number;
+  selectedPoi: PoiResult | null;
+  routeStops: PoiResult[];
+  bounds: L.LatLngBoundsExpression | null;
+  loading: boolean;
+  text: typeof copy.vi;
+  onClose: () => void;
+  onSelectRoute: (index: number) => void;
+}) {
+  if (!open) return null;
+  const selectedRoute = routes[selectedIndex];
+  const origin = [DA_NANG_CENTER.lat, DA_NANG_CENTER.lon] as [number, number];
+  const formatDistance = (meters?: number) => {
+    if (!meters) return '--';
+    return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+  };
+  const formatDuration = (seconds?: number) => {
+    if (!seconds) return '--';
+    return `${Math.round(seconds / 60)} ${text.minutes}`;
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="flex h-[90vh] w-[96vw] max-w-[1360px] flex-col overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+          <div className="min-w-0">
+            <h2 className="truncate text-lg font-bold text-white">
+              {selectedPoi ? `${text.routeMapTitle}: ${selectedPoi.title}` : text.fullRouteTitle}
+            </h2>
+            <p className="truncate text-sm text-slate-400">{text.routeMapHint}</p>
+          </div>
+          <button onClick={onClose} className="rounded-xl bg-slate-800 p-2 text-slate-400 hover:text-white">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[1fr_380px]">
+          <div className="relative min-h-[420px]">
+            {loading && !selectedRoute && (
+              <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-slate-950/70">
+                <div className="text-center text-slate-300">
+                  <Loader2 className="mx-auto mb-3 animate-spin text-cyan-300" size={34} />
+                  {text.routeMapHint}
+                </div>
+              </div>
+            )}
+            <MapContainer center={origin} zoom={13} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
+              <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+              <FitBounds bounds={bounds} />
+              <Marker position={origin} icon={originIcon}>
+                <Popup>Start</Popup>
+              </Marker>
+              {routeStops.map((poi, index) => (
+                <Marker key={poi.id} position={[poi.lat, poi.lon]} icon={index === routeStops.length - 1 ? destIcon : undefined}>
+                  <Popup>
+                    <strong>{text.stopLabel} {index + 1}</strong>
+                    <br />
+                    {poi.title}
+                  </Popup>
+                </Marker>
+              ))}
+              {routes.map((route, index) => {
+                const coords = route.route.coordinates.map((coord) => [coord[1], coord[0]]) as [number, number][];
+                const isSelected = index === selectedIndex;
+                return (
+                  <Polyline
+                    key={`route-${index}`}
+                    positions={coords}
+                    pathOptions={{
+                      color: route.esValidation?.valid ? '#a855f7' : '#f59e0b',
+                      weight: isSelected ? 7 : 4,
+                      opacity: isSelected ? 1 : 0.32,
+                    }}
+                    eventHandlers={{ click: () => onSelectRoute(index) }}
+                  />
+                );
+              })}
+              {routes.flatMap((route, routeIndex) =>
+                (route.esValidation?.warnings || [])
+                  .filter((warning) => warning.location)
+                  .map((warning, warningIndex) => (
+                    <Marker
+                      key={`warning-${routeIndex}-${warningIndex}`}
+                      position={[warning.location!.lat, warning.location!.lng]}
+                    >
+                      <Popup>
+                        <strong>{text.avoidSegment}</strong>
+                        <br />
+                        {warning.message || JSON.stringify(warning)}
+                      </Popup>
+                    </Marker>
+                  )),
+              )}
+            </MapContainer>
+          </div>
+
+          <aside className="min-h-0 overflow-y-auto border-l border-slate-800 bg-slate-900/60 p-4">
+            {routes.length > 1 && (
+              <div className="mb-4 grid grid-cols-2 gap-2 rounded-xl bg-slate-800 p-2">
+                {routes.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => onSelectRoute(index)}
+                    className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+                      index === selectedIndex ? 'bg-purple-600 text-white' : 'text-slate-400 hover:bg-slate-700'
+                    }`}
+                  >
+                    Tuyến {index + 1}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {selectedRoute ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-2">
+                  <Signal label="Distance" value={formatDistance(selectedRoute.distance)} />
+                  <Signal label="Time" value={formatDuration(selectedRoute.duration)} />
+                  <Signal
+                    label="AI"
+                    value={
+                      selectedRoute.esValidation?.valid
+                        ? text.routeLegal
+                        : `${selectedRoute.esValidation?.warnings?.length || 0} ${text.routeWarnings}`
+                    }
+                  />
+                </div>
+
+                {!!selectedRoute.esValidation?.warnings?.length && (
+                  <div className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-3">
+                    <h3 className="mb-2 font-semibold text-amber-100">{text.risks}</h3>
+                    <div className="space-y-2 text-sm text-amber-50">
+                      {selectedRoute.esValidation.warnings.map((warning, index) => (
+                        <p key={`${warning.message}-${index}`}>{warning.message || JSON.stringify(warning)}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!!selectedRoute.esValidation?.fuzzyInsights?.length && (
+                  <div className="rounded-xl border border-blue-400/25 bg-blue-400/10 p-3">
+                    <h3 className="mb-2 font-semibold text-blue-100">{text.routeFuzzy}</h3>
+                    <div className="space-y-2 text-sm text-blue-50">
+                      {selectedRoute.esValidation.fuzzyInsights.map((item, index) => (
+                        <p key={`${item.road}-${index}`}>
+                          <strong>{item.road}</strong>: {item.label}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                  <h3 className="mb-3 font-semibold text-slate-100">{text.routeSteps}</h3>
+                  <div className="space-y-2 text-sm text-slate-300">
+                    {selectedRoute.steps.slice(0, 12).map((step, index) => (
+                      <div key={`${step.instruction}-${index}`} className="flex gap-2">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs text-purple-100">
+                          {index + 1}
+                        </span>
+                        <span>{step.instruction || step.instructions || JSON.stringify(step)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <EmptyState text={text.routeMapHint} />
+            )}
+          </aside>
+        </div>
+      </div>
     </div>
   );
 }

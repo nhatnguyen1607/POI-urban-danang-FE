@@ -1,59 +1,77 @@
-﻿import { useState, useEffect } from 'react';
-import { Loader2, TrendingDown, Target, Activity } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Activity, Loader2, Target, TrendingDown } from 'lucide-react';
 import {
-  LineChart,
+  CartesianGrid,
+  Legend,
   Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer
 } from 'recharts';
 import { apiClient } from '../../utils/apiClient';
+import { useLanguage } from '../../i18n/LanguageContext';
 
 export default function ModelMetricsPage() {
+  const { language } = useLanguage();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [version, setVersion] = useState('v1');
 
+  const copy = language === 'vi'
+    ? {
+        title: 'Chỉ số mô hình',
+        subtitle: 'Theo dõi quá trình huấn luyện mô hình qua từng epoch',
+        version: 'Phiên bản mô hình',
+        loss: 'Loss (hàm mất mát)',
+        recall: 'Recall@5',
+        silhouette: 'Silhouette Score',
+      }
+    : {
+        title: 'Model Metrics',
+        subtitle: 'Track model training metrics across epochs',
+        version: 'Model version',
+        loss: 'Loss',
+        recall: 'Recall@5',
+        silhouette: 'Silhouette Score',
+      };
+
   useEffect(() => {
     setLoading(true);
     apiClient.get(`/api/metrics/training-loss?version=${version}`)
-      .then(result => {
+      .then((result) => {
         if (result && !result.error) {
-          // Parse strings to numbers
-          const formattedData = result.map((item: any) => ({
-            epoch: parseInt(item.epoch),
-            train_loss: parseFloat(item.train_loss),
-            test_loss: parseFloat(item.test_loss),
-            train_recall_5: parseFloat(item.train_recall_5),
-            test_recall_5: parseFloat(item.test_recall_5),
-            train_silhouette: parseFloat(item.train_silhouette),
-            test_silhouette: parseFloat(item.test_silhouette),
-          }));
-          setData(formattedData);
+          setData(result.map((item: any) => ({
+            epoch: Number.parseInt(item.epoch, 10),
+            train_loss: Number.parseFloat(item.train_loss),
+            test_loss: Number.parseFloat(item.test_loss),
+            train_recall_5: Number.parseFloat(item.train_recall_5),
+            test_recall_5: Number.parseFloat(item.test_recall_5),
+            train_silhouette: Number.parseFloat(item.train_silhouette),
+            test_silhouette: Number.parseFloat(item.test_silhouette),
+          })));
         } else {
           setData([]);
         }
       })
-      .catch(err => console.error('Failed to fetch metrics:', err))
+      .catch((err) => console.error('Failed to fetch metrics:', err))
       .finally(() => setLoading(false));
   }, [version]);
 
   return (
-    <div className="flex flex-col h-full space-y-6 animate-in fade-in duration-500">
-      <div className="flex justify-between items-end">
+    <div className="flex h-full flex-col space-y-6 animate-in fade-in duration-500">
+      <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Chá»‰ sá»‘ MÃ´ hÃ¬nh</h1>
-          <p className="text-gray-400">Theo dÃµi quÃ¡ trÃ¬nh huáº¥n luyá»‡n mÃ´ hÃ¬nh qua cÃ¡c epoch</p>
+          <h1 className="mb-2 text-3xl font-bold text-white">{copy.title}</h1>
+          <p className="text-gray-400">{copy.subtitle}</p>
         </div>
         <div className="flex flex-col">
-          <label className="text-gray-400 text-sm mb-1">PhiÃªn báº£n MÃ´ hÃ¬nh</label>
-          <select 
-            className="bg-gray-800 text-white border border-gray-700 rounded-lg px-4 py-2 outline-none focus:border-purple-500 transition-colors"
+          <label className="mb-1 text-sm text-gray-400">{copy.version}</label>
+          <select
+            className="rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-white outline-none transition-colors focus:border-cyan-500"
             value={version}
-            onChange={(e) => setVersion(e.target.value)}
+            onChange={(event) => setVersion(event.target.value)}
           >
             <option value="v1">Version 1 (v1)</option>
             <option value="v2">Version 2 (v2)</option>
@@ -64,84 +82,98 @@ export default function ModelMetricsPage() {
       </div>
 
       {loading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="animate-spin text-purple-500 w-10 h-10" />
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-10 w-10 animate-spin text-cyan-400" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 pb-6 overflow-y-auto custom-scrollbar">
-          
-          {/* Loss Chart */}
-          <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-6 shadow-xl backdrop-blur-md">
-            <div className="flex items-center space-x-3 mb-6">
-              <div className="p-2 bg-red-500/20 rounded-lg">
-                <TrendingDown className="text-red-400" size={24} />
-              </div>
-              <h2 className="text-xl font-bold text-white">Loss (HÃ m máº¥t mÃ¡t)</h2>
-            </div>
-            <div className="h-80 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="epoch" stroke="#9CA3AF" />
-                  <YAxis stroke="#9CA3AF" />
-                  <Tooltip contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#F3F4F6' }} />
-                  <Legend />
-                  <Line type="monotone" dataKey="train_loss" name="Train Loss" stroke="#EF4444" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 6 }} />
-                  <Line type="monotone" dataKey="test_loss" name="Test Loss" stroke="#F87171" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 gap-6 overflow-y-auto pb-6 xl:grid-cols-2">
+          <MetricChart
+            title={copy.loss}
+            icon={<TrendingDown className="text-red-400" size={24} />}
+            accent="bg-red-500/20"
+            data={data}
+            lines={[
+              { key: 'train_loss', name: 'Train Loss', color: '#EF4444' },
+              { key: 'test_loss', name: 'Test Loss', color: '#F87171', dashed: true },
+            ]}
+          />
 
-          {/* Recall Chart */}
-          <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-6 shadow-xl backdrop-blur-md">
-            <div className="flex items-center space-x-3 mb-6">
-              <div className="p-2 bg-emerald-500/20 rounded-lg">
-                <Target className="text-emerald-400" size={24} />
-              </div>
-              <h2 className="text-xl font-bold text-white">Recall@5</h2>
-            </div>
-            <div className="h-80 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="epoch" stroke="#9CA3AF" />
-                  <YAxis stroke="#9CA3AF" domain={[0, 1]} />
-                  <Tooltip contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#F3F4F6' }} />
-                  <Legend />
-                  <Line type="monotone" dataKey="train_recall_5" name="Train Recall@5" stroke="#10B981" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 6 }} />
-                  <Line type="monotone" dataKey="test_recall_5" name="Test Recall@5" stroke="#34D399" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          <MetricChart
+            title={copy.recall}
+            icon={<Target className="text-emerald-400" size={24} />}
+            accent="bg-emerald-500/20"
+            data={data}
+            yDomain={[0, 1]}
+            lines={[
+              { key: 'train_recall_5', name: 'Train Recall@5', color: '#10B981' },
+              { key: 'test_recall_5', name: 'Test Recall@5', color: '#34D399', dashed: true },
+            ]}
+          />
 
-          {/* Silhouette Score Chart */}
-          <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-6 shadow-xl backdrop-blur-md xl:col-span-2">
-            <div className="flex items-center space-x-3 mb-6">
-              <div className="p-2 bg-blue-500/20 rounded-lg">
-                <Activity className="text-blue-400" size={24} />
-              </div>
-              <h2 className="text-xl font-bold text-white">Silhouette Score</h2>
-            </div>
-            <div className="h-80 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="epoch" stroke="#9CA3AF" />
-                  <YAxis stroke="#9CA3AF" />
-                  <Tooltip contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#F3F4F6' }} />
-                  <Legend />
-                  <Line type="monotone" dataKey="train_silhouette" name="Train Silhouette" stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 6 }} />
-                  <Line type="monotone" dataKey="test_silhouette" name="Test Silhouette" stroke="#60A5FA" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          
+          <MetricChart
+            title={copy.silhouette}
+            icon={<Activity className="text-blue-400" size={24} />}
+            accent="bg-blue-500/20"
+            data={data}
+            className="xl:col-span-2"
+            lines={[
+              { key: 'train_silhouette', name: 'Train Silhouette', color: '#3B82F6' },
+              { key: 'test_silhouette', name: 'Test Silhouette', color: '#60A5FA', dashed: true },
+            ]}
+          />
         </div>
       )}
     </div>
   );
 }
 
+function MetricChart({
+  title,
+  icon,
+  accent,
+  data,
+  lines,
+  yDomain,
+  className = '',
+}: {
+  title: string;
+  icon: React.ReactNode;
+  accent: string;
+  data: any[];
+  lines: { key: string; name: string; color: string; dashed?: boolean }[];
+  yDomain?: [number, number];
+  className?: string;
+}) {
+  return (
+    <div className={`rounded-2xl border border-gray-800 bg-gray-900/80 p-6 shadow-xl backdrop-blur-md ${className}`}>
+      <div className="mb-6 flex items-center space-x-3">
+        <div className={`rounded-lg p-2 ${accent}`}>{icon}</div>
+        <h2 className="text-xl font-bold text-white">{title}</h2>
+      </div>
+      <div className="h-80 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+            <XAxis dataKey="epoch" stroke="#9CA3AF" />
+            <YAxis stroke="#9CA3AF" domain={yDomain} />
+            <Tooltip contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#F3F4F6' }} />
+            <Legend />
+            {lines.map((line) => (
+              <Line
+                key={line.key}
+                type="monotone"
+                dataKey={line.key}
+                name={line.name}
+                stroke={line.color}
+                strokeWidth={2}
+                strokeDasharray={line.dashed ? '5 5' : undefined}
+                dot={{ r: 3 }}
+                activeDot={{ r: 6 }}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}

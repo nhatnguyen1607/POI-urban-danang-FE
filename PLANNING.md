@@ -52,11 +52,12 @@ Can ho tro:
 - Them POI vao lich trinh.
 - Xoa POI.
 - Goi y POI bo sung khong trung voi POI da co trong lich trinh.
+- Tim dia diem bang mo ta text va anh tham chieu ngay trong Urban Agent; khong mo mot man hinh Legacy Site Selection rieng cho nguoi dung cuoi.
 - Cau lenh tu nhien co nhieu nhu cau, vi du `quan an + cafe`, phai hien du cac intent chinh neu data co.
 - Doi thu tu.
 - Doi phuong tien.
 - Xem warning.
-- Xem route bang he chuyen gia trong app truoc khi mo Google Maps.
+- Xem route bang he chuyen gia tren ban do truc quan trong app truoc khi mo Google Maps.
 - Mo ban do/phone/website/Grab handoff la action phu de nguoi dung xac nhan.
 - Ghi feedback huu ich/khong phu hop va thao tac them/xoa de tao learning loop.
 
@@ -157,7 +158,11 @@ Khi test Urban Agent, nen kiem tra:
 ```text
 - Chuyen ngon ngu Viet/Anh trong sidebar.
 - Query co nhieu intent: "tao lo trinh co quan an va quan cafe".
+- Chon thoi luong di choi 2/3/4/6 gio; itinerary phai thay doi so diem va tong thoi gian hop ly.
 - Nut Route AI hien route noi bo, Google Maps chi la action phu.
+- Nut Route AI phai hien modal ban do co marker, polyline, route stats va canh bao he chuyen gia.
+- Nut xem toan bo lo trinh phai hien route da diem tren mot ban do duy nhat.
+- Upload anh tham chieu + mo ta text de goi y dia diem theo Version 4.
 - POI co the them khong trung voi cac diem da nam trong lich trinh.
 - Nut huu ich/khong phu hop khong lam ngat flow UI.
 ```

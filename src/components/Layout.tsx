@@ -1,16 +1,14 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { Bot, LayoutDashboard, LineChart, Map, MapPin, Network, Search } from 'lucide-react';
+import { Bot, LayoutDashboard, LineChart, MapPin, Network } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 
 export default function Layout() {
   const { language, setLanguage } = useLanguage();
   const navItems = [
-    { name: 'Urban Agent', path: '/urban-agent', icon: <Bot size={20} /> },
-    { name: 'Dashboard', path: '/', icon: <LayoutDashboard size={20} /> },
-    { name: 'Model Metrics', path: '/model-metrics', icon: <LineChart size={20} /> },
+    { name: language === 'vi' ? 'Trợ lý hành trình' : 'Urban Agent', path: '/urban-agent', icon: <Bot size={20} /> },
+    { name: language === 'vi' ? 'Bảng dữ liệu' : 'Dashboard', path: '/', icon: <LayoutDashboard size={20} /> },
+    { name: language === 'vi' ? 'Chỉ số mô hình' : 'Model Metrics', path: '/model-metrics', icon: <LineChart size={20} /> },
     { name: 't-SNE Cluster', path: '/tsne-cluster', icon: <Network size={20} /> },
-    { name: 'Legacy Site Selection', path: '/ai-site-selection', icon: <Map size={20} /> },
-    { name: 'Text Search', path: '/text-search', icon: <Search size={20} /> },
   ];
 
   return (
@@ -23,7 +21,9 @@ export default function Layout() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-white">Danang UrbanAgent</h1>
-              <p className="text-xs text-slate-400">Urban intelligence MVP</p>
+              <p className="text-xs text-slate-400">
+                {language === 'vi' ? 'Trợ lý đô thị thông minh' : 'Urban intelligence MVP'}
+              </p>
             </div>
           </div>
         </div>
@@ -60,9 +60,13 @@ export default function Layout() {
             <option value="en">English</option>
           </select>
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 text-xs leading-5 text-slate-400">
-            <strong className="text-slate-200">Danang-first agent</strong>
+            <strong className="text-slate-200">
+              {language === 'vi' ? 'Agent ưu tiên Đà Nẵng' : 'Danang-first agent'}
+            </strong>
             <br />
-            Traveler + Business roles share one POI intelligence core.
+            {language === 'vi'
+              ? 'Khách đi chơi và người kinh doanh dùng chung lõi POI intelligence.'
+              : 'Traveler + Business roles share one POI intelligence core.'}
           </div>
         </div>
       </aside>
