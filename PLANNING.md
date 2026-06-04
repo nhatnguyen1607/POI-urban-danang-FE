@@ -51,10 +51,14 @@ Can ho tro:
 
 - Them POI vao lich trinh.
 - Xoa POI.
+- Goi y POI bo sung khong trung voi POI da co trong lich trinh.
+- Cau lenh tu nhien co nhieu nhu cau, vi du `quan an + cafe`, phai hien du cac intent chinh neu data co.
 - Doi thu tu.
 - Doi phuong tien.
 - Xem warning.
-- Mo ban do/phone/website/Grab handoff.
+- Xem route bang he chuyen gia trong app truoc khi mo Google Maps.
+- Mo ban do/phone/website/Grab handoff la action phu de nguoi dung xac nhan.
+- Ghi feedback huu ich/khong phu hop va thao tac them/xoa de tao learning loop.
 
 ## Business flow
 
@@ -99,6 +103,7 @@ Can ho tro:
 - Hook dung `useSomething`.
 - API client tach khoi component.
 - Trang khong chua logic scoring phuc tap.
+- Text UI dung UTF-8 va nen di qua language context neu la man hinh moi.
 - Neu backend fail, hien error co hanh dong thu lai.
 - Loading state phai ro.
 - Empty state phai goi y query mau.
@@ -110,4 +115,55 @@ feat(fe): add role switch layout
 feat(fe): add itinerary editor
 feat(fe): add business insight panel
 fix(fe): handle empty agent response
+```
+
+## Cach chay du an FE
+
+### Cai dat
+
+```bash
+cd D:\POI-urban-danang-FE
+npm install
+```
+
+### Cau hinh backend
+
+Tao file `.env` neu can doi backend URL:
+
+```text
+VITE_API_URL=http://localhost:7860
+```
+
+Neu khong co `.env`, frontend mac dinh goi:
+
+```text
+http://localhost:7860
+```
+
+### Chay dev
+
+```bash
+npm run dev
+```
+
+Mo trang MVP moi:
+
+```text
+http://localhost:5173/urban-agent
+```
+
+Khi test Urban Agent, nen kiem tra:
+
+```text
+- Chuyen ngon ngu Viet/Anh trong sidebar.
+- Query co nhieu intent: "tao lo trinh co quan an va quan cafe".
+- Nut Route AI hien route noi bo, Google Maps chi la action phu.
+- POI co the them khong trung voi cac diem da nam trong lich trinh.
+- Nut huu ich/khong phu hop khong lam ngat flow UI.
+```
+
+### Build kiem tra
+
+```bash
+npm run build
 ```
