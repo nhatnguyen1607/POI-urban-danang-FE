@@ -130,6 +130,25 @@ interface RouteResult {
   };
 }
 
+interface AgentTrainingStatus {
+  backend?: {
+    synthetic?: { sample_count?: number; expected_poi_count?: number; hard_negative_count?: number };
+    representationData?: { record_count?: number; by_record_type?: Record<string, number> };
+    learningLoop?: {
+      before?: Record<string, number>;
+      after?: Record<string, number>;
+      delta?: Record<string, number>;
+    };
+  };
+  research?: {
+    twoTowerMetrics?: {
+      test?: Record<string, number>;
+      data?: { pair_records?: number; positive_records?: number; negative_records?: number };
+    };
+    rerankerMetrics?: { test?: Record<string, number> };
+  };
+}
+
 const DA_NANG_CENTER = { lat: 16.0544, lon: 108.2022 };
 const originIcon = new L.Icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
@@ -147,13 +166,64 @@ const destIcon = new L.Icon({
   popupAnchor: [1, -34],
   shadowSize: [41, 41],
 });
+const stopIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+const warningIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-yellow.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
 
 function FitBounds({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
   const map = useMap();
   useEffect(() => {
-    if (bounds) map.fitBounds(bounds, { padding: [44, 44] });
+    if (!bounds) return;
+    window.requestAnimationFrame(() => {
+      try {
+        map.fitBounds(bounds, { padding: [44, 44] });
+      } catch {
+        // Leaflet can throw if the modal/map is unmounting while fitBounds runs.
+      }
+    });
   }, [bounds, map]);
   return null;
+}
+
+function isFiniteCoord(lat?: number, lon?: number) {
+  return Number.isFinite(lat) && Number.isFinite(lon);
+}
+
+function routeCoordinates(route?: RouteResult) {
+  return (route?.route?.coordinates || [])
+    .filter((coord: number[]) => Array.isArray(coord) && Number.isFinite(coord[0]) && Number.isFinite(coord[1]))
+    .map((coord: number[]) => [coord[1], coord[0]] as [number, number]);
+}
+
+function normalizeRouteResult(input: any): RouteResult | null {
+  const coordinates = input?.route?.coordinates || input?.geometry?.coordinates || input?.coordinates || [];
+  if (!Array.isArray(coordinates) || !coordinates.length) return null;
+  return {
+    route: { coordinates },
+    distance: Number(input?.distance) || 0,
+    duration: Number(input?.duration) || 0,
+    steps: Array.isArray(input?.steps) ? input.steps : [],
+    esValidation: {
+      valid: Boolean(input?.esValidation?.valid),
+      warnings: Array.isArray(input?.esValidation?.warnings) ? input.esValidation.warnings : [],
+      ruleTrace: Array.isArray(input?.esValidation?.ruleTrace) ? input.esValidation.ruleTrace : [],
+      fuzzyInsights: Array.isArray(input?.esValidation?.fuzzyInsights) ? input.esValidation.fuzzyInsights : [],
+      totalRulesChecked: Number(input?.esValidation?.totalRulesChecked) || 0,
+    },
+  };
 }
 
 const copy = {
@@ -348,6 +418,7 @@ export default function UrbanAgentPage() {
   const [routeBounds, setRouteBounds] = useState<L.LatLngBoundsExpression | null>(null);
   const [selectedRoutePoi, setSelectedRoutePoi] = useState<PoiResult | null>(null);
   const [routeStops, setRouteStops] = useState<PoiResult[]>([]);
+  const [trainingStatus, setTrainingStatus] = useState<AgentTrainingStatus | null>(null);
 
   useEffect(() => {
     setQuery(roleCopy[role].sample);
@@ -359,6 +430,21 @@ export default function UrbanAgentPage() {
     setRouteModalOpen(false);
     setRouteStops([]);
   }, [role, roleCopy]);
+
+  useEffect(() => {
+    let mounted = true;
+    apiClient
+      .get('/api/agent/training-status')
+      .then((data) => {
+        if (mounted) setTrainingStatus(data);
+      })
+      .catch(() => {
+        if (mounted) setTrainingStatus(null);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const context = useMemo(() => ({ location: DA_NANG_CENTER }), []);
 
@@ -493,36 +579,43 @@ export default function UrbanAgentPage() {
   };
 
   const loadExpertRoute = async (poi: PoiResult) => {
+    if (!isFiniteCoord(poi.lat, poi.lon)) {
+      setError('Selected place does not have valid coordinates for routing.');
+      return;
+    }
     setRouteLoadingId(poi.id);
     setExpertRoute(null);
     setSelectedRoutePoi(poi);
     setRouteRoutes([]);
     setRouteBounds(null);
     setSelectedRouteIndex(0);
-    setRouteStops([poi]);
-    setRouteModalOpen(true);
+    setRouteStops([]);
     try {
       const data = await apiClient.post('/api/route', {
         origin: { lat: DA_NANG_CENTER.lat, lng: DA_NANG_CENTER.lon },
         destination: { lat: poi.lat, lng: poi.lon },
       });
-      const bestRoute = data.routes?.[0] || data;
-      const routes = data.routes || [];
-      setRouteRoutes(routes);
-      if (routes[0]?.route?.coordinates?.length) {
-        const coords = routes[0].route.coordinates.map((coord: number[]) => [coord[1], coord[0]]) as [number, number][];
-        setRouteBounds(L.latLngBounds(coords));
+      const routes = (data.routes || [data]).map(normalizeRouteResult).filter(Boolean) as RouteResult[];
+      if (!routes.length) {
+        throw new Error('No valid route geometry returned for this place.');
       }
+      const bestRoute = routes[0];
+      setRouteStops([poi]);
+      setRouteRoutes(routes);
+      const coords = routeCoordinates(bestRoute);
+      if (coords.length) setRouteBounds(L.latLngBounds(coords));
+      setRouteModalOpen(true);
       setExpertRoute({
         destination: poi,
         distance: bestRoute.distance ? `${(bestRoute.distance / 1000).toFixed(1)} km` : undefined,
         duration: bestRoute.duration ? `${Math.round(bestRoute.duration / 60)} ${t.minutes}` : undefined,
         valid: bestRoute.esValidation?.valid,
-        warnings: bestRoute.esValidation?.warnings || data.warnings || [],
-        steps: bestRoute.steps || data.steps || [],
+        warnings: (bestRoute.esValidation?.warnings || []).map((warning) => warning.message || JSON.stringify(warning)),
+        steps: bestRoute.steps || [],
       });
       recordFeedback('route_requested', { poiId: poi.id, category: poi.category });
     } catch (err: any) {
+      setRouteModalOpen(false);
       setExpertRoute({
         destination: poi,
         valid: false,
@@ -536,29 +629,33 @@ export default function UrbanAgentPage() {
   const loadFullItineraryRoute = async () => {
     if (!itinerary.length) return;
     setSelectedRoutePoi(null);
-    setRouteStops(itinerary.map((item) => item.poi));
+    setRouteStops([]);
     setRouteRoutes([]);
     setRouteBounds(null);
     setSelectedRouteIndex(0);
-    setRouteModalOpen(true);
     setRouteLoadingId('full-itinerary');
     try {
       const segments: RouteResult[] = [];
       let origin = { lat: DA_NANG_CENTER.lat, lng: DA_NANG_CENTER.lon };
       for (const item of itinerary) {
+        if (!isFiniteCoord(item.poi.lat, item.poi.lon)) continue;
         const data = await apiClient.post('/api/route', {
           origin,
           destination: { lat: item.poi.lat, lng: item.poi.lon },
         });
-        const best = data.routes?.[0];
-        if (best) segments.push(best);
+        const best = normalizeRouteResult(data.routes?.[0] || data);
+        if (best && routeCoordinates(best).length) segments.push(best);
         origin = { lat: item.poi.lat, lng: item.poi.lon };
       }
+      if (!segments.length) {
+        throw new Error('No valid route geometry returned for the itinerary.');
+      }
+      const stops = itinerary.map((item) => item.poi).filter((poi) => isFiniteCoord(poi.lat, poi.lon));
+      setRouteStops(stops);
       setRouteRoutes(segments);
-      const allCoords = segments.flatMap((segment) =>
-        segment.route.coordinates.map((coord: number[]) => [coord[1], coord[0]] as [number, number]),
-      );
+      const allCoords = segments.flatMap((segment) => routeCoordinates(segment));
       if (allCoords.length) setRouteBounds(L.latLngBounds(allCoords));
+      setRouteModalOpen(true);
       recordFeedback('full_itinerary_route_requested', { stopCount: itinerary.length });
     } catch (err: any) {
       setError(err?.message || 'Không thể tính toàn bộ lộ trình.');
@@ -698,6 +795,8 @@ export default function UrbanAgentPage() {
           <div className="mt-5 rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm leading-6 text-slate-400">
             <strong className="text-slate-200">Learning loop:</strong> {t.principle}
           </div>
+
+          <AgentLearningPanel status={trainingStatus} />
         </div>
 
         {role === 'traveler' ? (
@@ -881,9 +980,7 @@ export default function UrbanAgentPage() {
         onClose={() => setRouteModalOpen(false)}
         onSelectRoute={(index) => {
           setSelectedRouteIndex(index);
-          const coords = routeRoutes[index]?.route?.coordinates?.map((coord: number[]) => [coord[1], coord[0]]) as
-            | [number, number][]
-            | undefined;
+          const coords = routeCoordinates(routeRoutes[index]);
           if (coords?.length) setRouteBounds(L.latLngBounds(coords));
         }}
       />
@@ -897,6 +994,57 @@ function MetricCard({ icon, label, value }: { icon: React.ReactNode; label: stri
       <div className="mb-3 text-cyan-300">{icon}</div>
       <div className="text-2xl font-bold text-white">{value}</div>
       <div className="text-sm text-slate-400">{label}</div>
+    </div>
+  );
+}
+
+function formatMetric(value?: number) {
+  if (value === undefined || value === null || Number.isNaN(value)) return '--';
+  return value <= 1 ? `${Math.round(value * 100)}%` : String(Math.round(value));
+}
+
+function AgentLearningPanel({ status }: { status: AgentTrainingStatus | null }) {
+  const synthetic = status?.backend?.synthetic;
+  const representation = status?.backend?.representationData;
+  const backendRecall = status?.backend?.learningLoop?.after?.recallAtReturnedK;
+  const twoTowerAuc = status?.research?.twoTowerMetrics?.test?.roc_auc;
+  const pairRecords = status?.research?.twoTowerMetrics?.data?.pair_records;
+
+  return (
+    <div className="mt-4 rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-cyan-100">Agent learning</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-400">
+            Grounded synthetic data, feedback memory, and representation metrics for the trained agent.
+          </p>
+        </div>
+        <span className="rounded-full bg-emerald-400/10 px-2 py-1 text-[11px] font-semibold text-emerald-200">
+          {twoTowerAuc !== undefined ? 'trained' : 'pending'}
+        </span>
+      </div>
+
+      {status ? (
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <LearningStat label="Synthetic" value={synthetic?.sample_count} />
+          <LearningStat label="Train records" value={representation?.record_count || pairRecords} />
+          <LearningStat label="BE recall" value={formatMetric(backendRecall)} />
+          <LearningStat label="Two-tower AUC" value={formatMetric(twoTowerAuc)} />
+        </div>
+      ) : (
+        <p className="text-xs leading-5 text-slate-400">
+          No training status yet. Run the agent training pipeline and refresh.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function LearningStat({ label, value }: { label: string; value?: string | number }) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950/80 p-3">
+      <div className="text-lg font-bold text-white">{value ?? '--'}</div>
+      <div className="text-[11px] text-slate-400">{label}</div>
     </div>
   );
 }
@@ -1087,8 +1235,8 @@ function RouteMapModal({
               <Marker position={origin} icon={originIcon}>
                 <Popup>Start</Popup>
               </Marker>
-              {routeStops.map((poi, index) => (
-                <Marker key={poi.id} position={[poi.lat, poi.lon]} icon={index === routeStops.length - 1 ? destIcon : undefined}>
+              {routeStops.filter((poi) => isFiniteCoord(poi.lat, poi.lon)).map((poi, index) => (
+                <Marker key={poi.id} position={[poi.lat, poi.lon]} icon={index === routeStops.length - 1 ? destIcon : stopIcon}>
                   <Popup>
                     <strong>{text.stopLabel} {index + 1}</strong>
                     <br />
@@ -1097,7 +1245,8 @@ function RouteMapModal({
                 </Marker>
               ))}
               {routes.map((route, index) => {
-                const coords = route.route.coordinates.map((coord) => [coord[1], coord[0]]) as [number, number][];
+                const coords = routeCoordinates(route);
+                if (!coords.length) return null;
                 const isSelected = index === selectedIndex;
                 return (
                   <Polyline
@@ -1114,11 +1263,12 @@ function RouteMapModal({
               })}
               {routes.flatMap((route, routeIndex) =>
                 (route.esValidation?.warnings || [])
-                  .filter((warning) => warning.location)
+                  .filter((warning) => isFiniteCoord(warning.location?.lat, warning.location?.lng))
                   .map((warning, warningIndex) => (
                     <Marker
                       key={`warning-${routeIndex}-${warningIndex}`}
                       position={[warning.location!.lat, warning.location!.lng]}
+                      icon={warningIcon}
                     >
                       <Popup>
                         <strong>{text.avoidSegment}</strong>
@@ -1190,7 +1340,7 @@ function RouteMapModal({
                 <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
                   <h3 className="mb-3 font-semibold text-slate-100">{text.routeSteps}</h3>
                   <div className="space-y-2 text-sm text-slate-300">
-                    {selectedRoute.steps.slice(0, 12).map((step, index) => (
+                    {(selectedRoute.steps || []).slice(0, 12).map((step, index) => (
                       <div key={`${step.instruction}-${index}`} className="flex gap-2">
                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs text-purple-100">
                           {index + 1}
