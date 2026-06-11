@@ -2,6 +2,76 @@
 
 @layer base {
   body {
-    @apply bg-gray-900 text-gray-100 font-sans antialiased;
+    @apply bg-slate-50 text-slate-900 font-sans antialiased;
   }
+}
+
+.customer-agent .bg-slate-950,
+.customer-agent .bg-slate-950\/80,
+.customer-agent .bg-slate-950\/70,
+.customer-agent .bg-slate-900,
+.customer-agent .bg-slate-900\/70,
+.customer-agent .bg-slate-900\/50,
+.customer-agent .bg-slate-900\/60 {
+  background-color: #ffffff !important;
+}
+
+.customer-agent .bg-slate-800,
+.customer-agent .bg-slate-800\/50 {
+  background-color: #f1f5f9 !important;
+}
+
+.customer-agent .border-slate-800,
+.customer-agent .border-slate-700 {
+  border-color: #dbe4ef !important;
+}
+
+.customer-agent .text-white,
+.customer-agent .text-slate-100,
+.customer-agent .text-slate-200 {
+  color: #0f172a !important;
+}
+
+.customer-agent .text-slate-300,
+.customer-agent .text-slate-400 {
+  color: #475569 !important;
+}
+
+.customer-agent .text-cyan-100,
+.customer-agent .text-cyan-200,
+.customer-agent .text-cyan-300 {
+  color: #0e7490 !important;
+}
+
+.customer-agent .text-purple-100,
+.customer-agent .text-purple-200 {
+  color: #6b21a8 !important;
+}
+
+.customer-agent .bg-purple-500\/15,
+.customer-agent .bg-purple-500\/20,
+.customer-agent .hover\:bg-purple-500\/25:hover {
+  background-color: #f3e8ff !important;
+}
+
+.customer-agent button:disabled,
+.customer-agent button:disabled:hover {
+  background-color: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+  opacity: 1 !important;
+}
+
+.customer-agent button:disabled svg {
+  color: #64748b !important;
+}
+
+.customer-agent textarea,
+.customer-agent select {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+.customer-agent .shadow-cyan-950\/20 {
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08) !important;
 }

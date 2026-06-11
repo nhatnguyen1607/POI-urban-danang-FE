@@ -1,43 +1,67 @@
-import { Outlet, NavLink } from 'react-router-dom';
-import { Bot, LayoutDashboard, LineChart, MapPin, Network } from 'lucide-react';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import {
+  BarChart3,
+  Bot,
+  Database,
+  Languages,
+  LineChart,
+  LogOut,
+  MapPin,
+  MessageSquareHeart,
+  Network,
+  Settings,
+  ShieldCheck,
+  Store,
+  UserRound,
+  Users,
+} from 'lucide-react';
+import { useAuth } from '../auth/useAuth';
 import { useLanguage } from '../i18n/LanguageContext';
+import type { AppRole } from '../auth/authContextValue';
+
+const roleLabels: Record<AppRole, string> = {
+  customer: 'Khách du lịch',
+  seller: 'Người kinh doanh',
+  admin: 'Quản trị viên',
+};
 
 export default function Layout() {
   const { language, setLanguage } = useLanguage();
-  const navItems = [
-    { name: language === 'vi' ? 'Trợ lý hành trình' : 'Urban Agent', path: '/urban-agent', icon: <Bot size={20} /> },
-    { name: language === 'vi' ? 'Bảng dữ liệu' : 'Dashboard', path: '/', icon: <LayoutDashboard size={20} /> },
-    { name: language === 'vi' ? 'Chỉ số mô hình' : 'Model Metrics', path: '/model-metrics', icon: <LineChart size={20} /> },
-    { name: 't-SNE Cluster', path: '/tsne-cluster', icon: <Network size={20} /> },
-  ];
+  const { user, role, signOut } = useAuth();
+  const navigate = useNavigate();
+  const navItems = getNavItems(role);
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate(role === 'admin' ? '/admin/login' : '/login', { replace: true });
+  };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-100">
-      <aside className="flex w-72 flex-col border-r border-slate-800 bg-slate-950">
-        <div className="p-6">
+    <div className="flex min-h-screen bg-[#f5f8fb] text-slate-900">
+      <aside className="sticky top-0 hidden h-screen w-72 shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
+        <div className="p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-cyan-400 p-2 shadow-lg shadow-cyan-500/20">
-              <MapPin className="text-slate-950" size={24} />
+            <div className="rounded-xl bg-cyan-600 p-2 text-white shadow-sm">
+              <MapPin size={24} />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-white">Danang UrbanAgent</h1>
-              <p className="text-xs text-slate-400">
-                {language === 'vi' ? 'Trợ lý đô thị thông minh' : 'Urban intelligence MVP'}
-              </p>
+              <h1 className="text-base font-bold text-slate-950">Danang UrbanAgent</h1>
+              <p className="text-xs font-medium text-slate-500">{role ? roleLabels[role] : 'Hệ thống đô thị AI'}</p>
             </div>
           </div>
         </div>
 
-        <nav className="flex-1 space-y-2 px-4">
+        <nav className="flex-1 space-y-1 px-3">
           {navItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
+              end={item.end}
               className={({ isActive }) =>
-                `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
+                `flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-semibold transition ${
                   isActive
-                    ? 'border border-cyan-400/20 bg-cyan-400/10 text-cyan-200'
-                    : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100'
+                    ? 'border border-cyan-200 bg-cyan-50 text-cyan-800'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
                 }`
               }
             >
@@ -47,35 +71,99 @@ export default function Layout() {
           ))}
         </nav>
 
-        <div className="p-5">
-          <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-            {language === 'vi' ? 'Ngôn ngữ' : 'Language'}
+        <div className="space-y-4 border-t border-slate-200 p-4">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+            <div className="mb-2 flex items-center gap-2 font-bold text-slate-950">
+              <UserRound size={16} />
+              Tài khoản
+            </div>
+            <p className="truncate text-slate-600">{user?.displayName || user?.email}</p>
+          </div>
+
+          <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+            <Languages size={14} />
+            Ngôn ngữ
           </label>
           <select
             value={language}
             onChange={(event) => setLanguage(event.target.value === 'en' ? 'en' : 'vi')}
-            className="mb-4 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400"
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-cyan-500"
           >
             <option value="vi">Tiếng Việt</option>
             <option value="en">English</option>
           </select>
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 text-xs leading-5 text-slate-400">
-            <strong className="text-slate-200">
-              {language === 'vi' ? 'Agent ưu tiên Đà Nẵng' : 'Danang-first agent'}
-            </strong>
-            <br />
-            {language === 'vi'
-              ? 'Khách đi chơi và người kinh doanh dùng chung lõi POI intelligence.'
-              : 'Traveler + Business roles share one POI intelligence core.'}
-          </div>
+
+          <button
+            onClick={handleSignOut}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100"
+          >
+            <LogOut size={16} />
+            Đăng xuất
+          </button>
         </div>
       </aside>
 
-      <main className="relative flex-1 overflow-y-auto overflow-x-hidden bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.12),_transparent_35%),linear-gradient(135deg,_#020617,_#0f172a_55%,_#020617)]">
-        <div className="min-h-full p-6 lg:p-8">
+      <main className="min-w-0 flex-1">
+        <div className="border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-bold text-slate-950">
+              <MapPin className="text-cyan-700" size={20} />
+              Danang UrbanAgent
+            </div>
+            <button onClick={handleSignOut} className="rounded-lg border border-slate-200 p-2 text-slate-600">
+              <LogOut size={18} />
+            </button>
+          </div>
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                end={item.end}
+                className={({ isActive }) =>
+                  `inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${
+                    isActive ? 'bg-cyan-50 text-cyan-800' : 'bg-slate-100 text-slate-600'
+                  }`
+                }
+              >
+                {item.icon}
+                {item.name}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+        <div className="p-4 sm:p-6 lg:p-8">
           <Outlet />
         </div>
       </main>
     </div>
   );
+}
+
+function getNavItems(role: AppRole | null) {
+  if (role === 'seller') {
+    return [
+      { name: 'Phân tích vị trí', path: '/seller', icon: <BarChart3 size={20} />, end: true },
+      { name: 'Hồ sơ địa điểm', path: '/seller/business-profile', icon: <Store size={20} /> },
+    ];
+  }
+
+  if (role === 'admin') {
+    return [
+      { name: 'Tổng quan', path: '/admin', icon: <ShieldCheck size={20} />, end: true },
+      { name: 'Users', path: '/admin/users', icon: <Users size={20} /> },
+      { name: 'POIs', path: '/admin/pois', icon: <Database size={20} /> },
+      { name: 'Reviews', path: '/admin/reviews', icon: <MessageSquareHeart size={20} /> },
+      { name: 'System', path: '/admin/system', icon: <Settings size={20} /> },
+      { name: 'Chỉ số mô hình', path: '/admin/model-metrics', icon: <LineChart size={20} /> },
+      { name: 't-SNE Cluster', path: '/admin/tsne-cluster', icon: <Network size={20} /> },
+    ];
+  }
+
+  return [
+    { name: 'Urban Agent', path: '/urban-agent', icon: <Bot size={20} /> },
+    { name: 'Bản đồ & dữ liệu', path: '/', icon: <MapPin size={20} />, end: true },
+    { name: 'Sở thích cá nhân', path: '/preferences', icon: <UserRound size={20} /> },
+    { name: 'Phản hồi', path: '/feedback', icon: <MessageSquareHeart size={20} /> },
+  ];
 }

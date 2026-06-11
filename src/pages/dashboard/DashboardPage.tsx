@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Store, Map as MapIcon, Tags, Star, Loader2 } from 'lucide-react';
 import L from 'leaflet';
@@ -64,21 +64,50 @@ export default function DashboardPage() {
       };
 
   const metrics = [
-    { title: copy.total, value: data.metrics.totalPOIs.toLocaleString(), icon: <Store className="text-blue-400" size={24} />, color: 'from-blue-500/20 to-blue-900/20' },
-    { title: copy.districts, value: data.metrics.numDistricts.toString(), icon: <MapIcon className="text-emerald-400" size={24} />, color: 'from-emerald-500/20 to-emerald-900/20' },
-    { title: copy.categories, value: data.metrics.numCategories.toString(), icon: <Tags className="text-purple-400" size={24} />, color: 'from-purple-500/20 to-purple-900/20' },
-    { title: copy.avgRating, value: `${data.metrics.avgRating} / ${source === 'ggmap' ? 5 : 10}`, icon: <Star className="text-amber-400" size={24} />, color: 'from-amber-500/20 to-amber-900/20' },
+    {
+      title: copy.total,
+      value: data.metrics.totalPOIs.toLocaleString(),
+      icon: <Store className="text-blue-700" size={24} />,
+      color: 'from-blue-50 to-blue-100/80 border-blue-200',
+      iconWrap: 'bg-blue-100 border-blue-200',
+    },
+    {
+      title: copy.districts,
+      value: data.metrics.numDistricts.toString(),
+      icon: <MapIcon className="text-emerald-700" size={24} />,
+      color: 'from-emerald-50 to-emerald-100/80 border-emerald-200',
+      iconWrap: 'bg-emerald-100 border-emerald-200',
+    },
+    {
+      title: copy.categories,
+      value: data.metrics.numCategories.toString(),
+      icon: <Tags className="text-purple-700" size={24} />,
+      color: 'from-purple-50 to-purple-100/80 border-purple-200',
+      iconWrap: 'bg-purple-100 border-purple-200',
+    },
+    {
+      title: copy.avgRating,
+      value: `${data.metrics.avgRating} / ${source === 'ggmap' ? 5 : 10}`,
+      icon: <Star className="text-amber-700" size={24} />,
+      color: 'from-amber-50 to-amber-100/80 border-amber-200',
+      iconWrap: 'bg-amber-100 border-amber-200',
+    },
   ];
+
+  const featuredPois = (data.sampleData as any[])
+    .filter((poi) => poi?.lat && poi?.lng)
+    .sort((a, b) => Number(b.rating || 0) - Number(a.rating || 0))
+    .slice(0, 10);
 
   return (
     <div className="flex flex-col h-full space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">{copy.title}</h1>
-          <p className="text-gray-400">{copy.subtitle}</p>
+          <h1 className="text-3xl font-bold text-slate-950 mb-2">{copy.title}</h1>
+          <p className="text-slate-600">{copy.subtitle}</p>
         </div>
         <div className="flex flex-col">
-          <label className="text-gray-400 text-sm mb-1">{copy.source}</label>
+          <label className="text-slate-600 text-sm mb-1">{copy.source}</label>
           <select 
             className="bg-gray-800 text-white border border-gray-700 rounded-lg px-4 py-2 outline-none focus:border-blue-500 transition-colors"
             value={source}
@@ -93,34 +122,35 @@ export default function DashboardPage() {
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {metrics.map((metric, idx) => (
-          <div key={idx} className={`p-6 rounded-2xl bg-gradient-to-br ${metric.color} border border-white/5 backdrop-blur-md shadow-xl transition-all duration-300 relative overflow-hidden`}>
-            {loading && <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-[2px] z-10 flex items-center justify-center"><Loader2 className="animate-spin text-white/50" /></div>}
+          <div key={idx} className={`p-6 rounded-2xl bg-gradient-to-br ${metric.color} shadow-lg shadow-slate-200/70 transition-all duration-300 relative overflow-hidden`}>
+            {loading && <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-10 flex items-center justify-center"><Loader2 className="animate-spin text-slate-500" /></div>}
             <div className="flex justify-between items-start mb-4">
-              <div className="p-3 rounded-xl bg-gray-900/50 border border-white/10">
+              <div className={`p-3 rounded-xl border ${metric.iconWrap}`}>
                 {metric.icon}
               </div>
             </div>
-            <h3 className="text-gray-400 text-sm font-medium mb-1">{metric.title}</h3>
-            <p className="text-3xl font-bold text-white tracking-tight">{metric.value}</p>
+            <h3 className="text-slate-600 text-sm font-semibold mb-1">{metric.title}</h3>
+            <p className="text-3xl font-bold text-slate-950 tracking-tight">{metric.value}</p>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-[400px]">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-[520px]">
         {/* Map Section */}
-        <div className="lg:col-span-2 rounded-2xl overflow-hidden border border-gray-800 bg-gray-900 shadow-xl relative z-0">
+        <div className="lg:col-span-2 h-[520px] rounded-2xl overflow-hidden border border-gray-800 bg-gray-900 shadow-xl relative z-0">
           {loading && <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm z-[999] flex items-center justify-center"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>}
           <MapContainer 
             center={[16.0544, 108.2022]} 
             zoom={12} 
             scrollWheelZoom={false}
-            style={{ height: '100%', width: '100%', minHeight: '400px' }}
+            style={{ height: '100%', width: '100%' }}
           >
+            <MapResizeHandler trigger={`${source}-${loading}-${featuredPois.length}`} />
             <TileLayer
               attribution='&copy; OpenStreetMap'
               url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
             />
-            {!loading && data.sampleData.slice(0, 500).map((poi: any, idx) => (
+            {!loading && featuredPois.map((poi: any, idx) => (
               poi.lat && poi.lng && (
                 <Marker key={idx} position={[poi.lat, poi.lng]}>
                   <Popup>
@@ -135,14 +165,14 @@ export default function DashboardPage() {
         </div>
 
         {/* Data Table Placeholder */}
-        <div className="rounded-2xl border border-gray-800 bg-gray-900/50 backdrop-blur-md p-6 shadow-xl flex flex-col relative overflow-hidden">
+        <div className="h-[520px] rounded-2xl border border-gray-800 bg-gray-900/50 backdrop-blur-md p-6 shadow-xl flex flex-col relative overflow-hidden">
           {loading && <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm z-10 flex items-center justify-center"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>}
           <h3 className="text-xl font-bold text-white mb-4">{copy.featured}</h3>
           <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
             {data.sampleData.length === 0 && !loading && (
               <p className="text-gray-500 text-center mt-10">{copy.empty}</p>
             )}
-            {data.sampleData.map((poi: any, i) => (
+            {featuredPois.map((poi: any, i) => (
               <div key={i} className="p-4 rounded-xl bg-gray-800/50 border border-gray-700/50 hover:bg-gray-800 transition-colors cursor-pointer">
                 <div className="flex justify-between mb-1">
                   <h4 className="font-semibold text-gray-200 truncate pr-2" title={fixText(poi.name)}>{fixText(poi.name)}</h4>
@@ -165,6 +195,22 @@ export default function DashboardPage() {
       </div>
     </div>
   );
+}
+
+function MapResizeHandler({ trigger }: { trigger: string }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => map.invalidateSize());
+    const timer = window.setTimeout(() => map.invalidateSize(), 250);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [map, trigger]);
+
+  return null;
 }
 
 function fixText(value?: string) {

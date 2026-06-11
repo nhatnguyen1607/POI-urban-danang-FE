@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Building2,
   Car,
   CheckCircle2,
   CloudSun,
@@ -10,8 +9,8 @@ import {
   MapPin,
   Plus,
   Route,
+  Save,
   Sparkles,
-  Store,
   ThumbsDown,
   ThumbsUp,
   Trash2,
@@ -24,6 +23,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { apiClient } from '../../utils/apiClient';
 import { useLanguage } from '../../i18n/LanguageContext';
+import { useAuth } from '../../auth/useAuth';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -106,16 +106,6 @@ interface BusinessArea {
   };
 }
 
-interface ExpertRoute {
-  destination?: PoiResult;
-  distance?: string | number;
-  duration?: string | number;
-  valid?: boolean;
-  warnings?: string[];
-  route?: { instruction?: string; instructions?: string; distance?: number; duration?: number }[];
-  steps?: { instruction?: string; instructions?: string; distance?: number; duration?: number }[];
-}
-
 interface RouteResult {
   route: { coordinates: number[][] };
   distance: number;
@@ -147,6 +137,28 @@ interface AgentTrainingStatus {
     };
     rerankerMetrics?: { test?: Record<string, number> };
   };
+}
+
+interface SavedItinerary {
+  itineraryId: string;
+  query: string;
+  durationMinutes: number;
+  transport: string;
+  stops: {
+    poiId: string;
+    order: number;
+    stayMinutes: number;
+    reason: string;
+    addedBy: 'agent' | 'user';
+    poiSnapshot?: Partial<PoiResult>;
+  }[];
+  routeSummary?: {
+    totalDistanceKm?: number;
+    totalDurationMinutes?: number;
+    warnings?: string[];
+  };
+  updatedAt?: string;
+  createdAt?: string;
 }
 
 const DA_NANG_CENTER = { lat: 16.0544, lon: 108.2022 };
@@ -224,6 +236,28 @@ function normalizeRouteResult(input: any): RouteResult | null {
       totalRulesChecked: Number(input?.esValidation?.totalRulesChecked) || 0,
     },
   };
+}
+
+function getWeatherDescription(code?: number) {
+  if (code === undefined || code === null) return '';
+  if (code === 0) return 'Trời quang';
+  if ([1, 2, 3].includes(code)) return 'Có mây';
+  if ([45, 48].includes(code)) return 'Có sương mù';
+  if ([51, 53, 55, 56, 57].includes(code)) return 'Mưa phùn';
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return 'Có mưa';
+  if ([95, 96, 99].includes(code)) return 'Có dông';
+  return 'Thời tiết hiện tại';
+}
+
+function formatCurrentWeather(weather: any, waitingText: string) {
+  const current = weather?.current;
+  if (!current) return waitingText;
+  const temperature = Number(current.temperature_2m);
+  const precipitation = Number(current.precipitation || 0);
+  const description = getWeatherDescription(Number(current.weather_code));
+  const tempText = Number.isFinite(temperature) ? `${Math.round(temperature)}°C` : '';
+  const rainText = precipitation > 0 ? `Mưa ${precipitation} mm` : 'Không mưa';
+  return [tempText, description, rainText].filter(Boolean).join(' · ');
 }
 
 const copy = {
@@ -389,6 +423,7 @@ function percent(value: number) {
 
 export default function UrbanAgentPage() {
   const { language } = useLanguage();
+  const { user, firebaseReady, signInWithGoogle } = useAuth();
   const t = copy[language];
   const roleCopy = useMemo(
     () => ({
@@ -397,7 +432,7 @@ export default function UrbanAgentPage() {
     }),
     [t],
   );
-  const [role, setRole] = useState<Role>('traveler');
+  const [role] = useState<Role>('traveler');
   const [query, setQuery] = useState(t.travelerSample);
   const [transport, setTransport] = useState('motorbike');
   const [tripDurationMinutes, setTripDurationMinutes] = useState(240);
@@ -408,7 +443,6 @@ export default function UrbanAgentPage() {
   const [itinerary, setItinerary] = useState<ItineraryItem[]>([]);
   const [businessAreas, setBusinessAreas] = useState<BusinessArea[]>([]);
   const [weather, setWeather] = useState<any>(null);
-  const [expertRoute, setExpertRoute] = useState<ExpertRoute | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState('');
   const [modelVersion, setModelVersion] = useState('v4');
@@ -419,6 +453,10 @@ export default function UrbanAgentPage() {
   const [selectedRoutePoi, setSelectedRoutePoi] = useState<PoiResult | null>(null);
   const [routeStops, setRouteStops] = useState<PoiResult[]>([]);
   const [trainingStatus, setTrainingStatus] = useState<AgentTrainingStatus | null>(null);
+  const [savedItineraries, setSavedItineraries] = useState<SavedItinerary[]>([]);
+  const [savedRouteSummary, setSavedRouteSummary] = useState<SavedItinerary['routeSummary'] | null>(null);
+  const [savingItinerary, setSavingItinerary] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
 
   useEffect(() => {
     setQuery(roleCopy[role].sample);
@@ -426,9 +464,9 @@ export default function UrbanAgentPage() {
     setPoiResults([]);
     setItinerary([]);
     setBusinessAreas([]);
-    setExpertRoute(null);
     setRouteModalOpen(false);
     setRouteStops([]);
+    setSavedRouteSummary(null);
   }, [role, roleCopy]);
 
   useEffect(() => {
@@ -446,9 +484,61 @@ export default function UrbanAgentPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    apiClient
+      .get(`/api/weather/forecast?lat=${DA_NANG_CENTER.lat}&lon=${DA_NANG_CENTER.lon}`)
+      .then((data) => {
+        if (mounted) setWeather(data);
+      })
+      .catch(() => {
+        if (mounted) setWeather(null);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setSavedItineraries([]);
+      return;
+    }
+    let mounted = true;
+    apiClient
+      .get('/api/agent/itineraries')
+      .then((data) => {
+        if (mounted) setSavedItineraries(data?.itineraries || []);
+      })
+      .catch(() => {
+        if (mounted) setSavedItineraries([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [user]);
+
   const context = useMemo(() => ({ location: DA_NANG_CENTER }), []);
 
+  const requireAuthFor = async (message: string) => {
+    if (user) return true;
+    if (!firebaseReady) {
+      setError('Firebase is not configured. Add VITE_FIREBASE_* values to the frontend .env file.');
+      return false;
+    }
+    setError(message);
+    try {
+      await signInWithGoogle();
+      setError('');
+      return true;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : message);
+      return false;
+    }
+  };
+
   const recordFeedback = async (eventType: string, payload: Record<string, unknown>) => {
+    if (!user) return;
     try {
       await apiClient.post('/api/agent/feedback', { role, eventType, query, payload });
     } catch {
@@ -489,21 +579,23 @@ export default function UrbanAgentPage() {
   const runAgent = async () => {
     setLoading(true);
     setError('');
-    setExpertRoute(null);
     try {
       if (role === 'traveler') {
         const formData = new FormData();
         formData.append('concept', query);
         formData.append('modelVersion', modelVersion);
         if (imageFile) formData.append('image', imageFile);
+        const itineraryRequest = user
+          ? apiClient.post('/api/agent/create-itinerary', {
+              query,
+              context: { ...context, durationMinutes: tripDurationMinutes },
+              transport,
+              limit: 6,
+              durationMinutes: tripDurationMinutes,
+            })
+          : Promise.resolve({ itinerary: [] });
         const [itineraryData, recommendationData, weatherData, multimodalData] = await Promise.allSettled([
-          apiClient.post('/api/agent/create-itinerary', {
-            query,
-            context: { ...context, durationMinutes: tripDurationMinutes },
-            transport,
-            limit: 6,
-            durationMinutes: tripDurationMinutes,
-          }),
+          itineraryRequest,
           apiClient.post('/api/agent/recommend-poi', { query, context, limit: 14 }),
           apiClient.get(`/api/weather/forecast?lat=${DA_NANG_CENTER.lat}&lon=${DA_NANG_CENTER.lon}`),
           apiClient.post('/api/recommend', formData),
@@ -525,6 +617,7 @@ export default function UrbanAgentPage() {
         );
 
         setItinerary(nextItinerary);
+        setSavedRouteSummary(null);
         if (weatherData.status === 'fulfilled') setWeather(weatherData.value);
         setPoiResults(mergedExtras);
         recordFeedback('agent_run_traveler', {
@@ -534,6 +627,12 @@ export default function UrbanAgentPage() {
           hasImage: Boolean(imageFile),
         });
       } else {
+        const canRunBusiness = await requireAuthFor(
+          language === 'vi'
+            ? 'Đăng nhập để chạy phân tích vị trí kinh doanh.'
+            : 'Sign in to run business location analysis.',
+        );
+        if (!canRunBusiness) return;
         const data = await apiClient.post('/api/agent/business-insight', {
           concept: query,
           limit: 5,
@@ -553,7 +652,16 @@ export default function UrbanAgentPage() {
   };
 
   const removeFromItinerary = (poiId: string) => {
+    if (!user) {
+      requireAuthFor(
+        language === 'vi'
+          ? 'Đăng nhập để sửa lịch trình và ghi tín hiệu học.'
+          : 'Sign in to edit itineraries and record learning signals.',
+      );
+      return;
+    }
     const removed = itinerary.find((item) => item.poi.id === poiId)?.poi;
+    setSavedRouteSummary(null);
     setItinerary((items) =>
       items.filter((item) => item.poi.id !== poiId).map((item, index) => ({ ...item, order: index + 1 })),
     );
@@ -564,7 +672,16 @@ export default function UrbanAgentPage() {
   };
 
   const addPoiToItinerary = (poi: PoiResult) => {
+    if (!user) {
+      requireAuthFor(
+        language === 'vi'
+          ? 'Đăng nhập để thêm POI vào lịch trình và ghi tín hiệu học.'
+          : 'Sign in to add POIs to an itinerary and record learning signals.',
+      );
+      return;
+    }
     if (itinerary.some((item) => item.poi.id === poi.id)) return;
+    setSavedRouteSummary(null);
     setItinerary((items) => [
       ...items,
       {
@@ -578,13 +695,81 @@ export default function UrbanAgentPage() {
     recordFeedback('add_to_itinerary', { poiId: poi.id, category: poi.category });
   };
 
+  const saveCurrentItinerary = async () => {
+    if (!itinerary.length) return;
+    const canSave = await requireAuthFor(
+      language === 'vi' ? 'Đăng nhập để lưu lịch trình vào tài khoản của bạn.' : 'Sign in to save this itinerary.',
+    );
+    if (!canSave) return;
+    setSavingItinerary(true);
+    setSaveMessage('');
+    try {
+      const result = await apiClient.post('/api/agent/itineraries', {
+        query,
+        durationMinutes: tripDurationMinutes,
+        transport,
+        origin: { ...DA_NANG_CENTER, label: 'Đà Nẵng' },
+        itinerary,
+        routeSummary: {
+          totalDurationMinutes: itinerary.reduce((sum, item) => sum + (item.travelFromPrevious?.estimatedMinutes || 0), 0),
+          totalDistanceKm: itinerary.reduce((sum, item) => sum + (item.travelFromPrevious?.distanceKm || 0), 0),
+          warnings: [],
+        },
+        status: 'saved',
+      });
+      if (result?.itinerary) {
+        setSavedItineraries((items) => [result.itinerary, ...items.filter((item) => item.itineraryId !== result.itinerary.itineraryId)]);
+      }
+      setSaveMessage('Đã lưu thành công.');
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : 'Không thể lưu lịch trình.');
+    } finally {
+      setSavingItinerary(false);
+    }
+  };
+
+  const openSavedItinerary = (saved: SavedItinerary) => {
+    setQuery(saved.query || query);
+    setTripDurationMinutes(saved.durationMinutes || tripDurationMinutes);
+    setTransport(saved.transport || transport);
+    setItinerary(
+      (saved.stops || []).map((stop, index) => {
+        const snapshot = stop.poiSnapshot || {};
+        return {
+          order: stop.order || index + 1,
+          poi: {
+            id: snapshot.id || stop.poiId,
+            title: snapshot.title || snapshot.name || `Điểm dừng ${index + 1}`,
+            name: snapshot.name || snapshot.title || `Điểm dừng ${index + 1}`,
+            category: snapshot.category || 'Địa điểm',
+            district: snapshot.district || 'Đà Nẵng',
+            lat: Number(snapshot.lat) || DA_NANG_CENTER.lat,
+            lon: Number(snapshot.lon) || DA_NANG_CENTER.lon,
+            score: Number(snapshot.score) || 0,
+            rating: Number(snapshot.rating) || undefined,
+            reason: stop.reason || '',
+          },
+          suggestedStayMinutes: stop.stayMinutes,
+          reason: stop.reason,
+        };
+      }),
+    );
+    setSavedRouteSummary(saved.routeSummary || null);
+    setSaveMessage('Đã mở lại lịch trình đã lưu.');
+  };
+
   const loadExpertRoute = async (poi: PoiResult) => {
+    const canRoute = await requireAuthFor(
+      language === 'vi'
+        ? 'Đăng nhập để dùng route chuyên gia và ghi agentEvents.'
+        : 'Sign in to use expert routing and record agentEvents.',
+    );
+    if (!canRoute) return;
     if (!isFiniteCoord(poi.lat, poi.lon)) {
       setError('Selected place does not have valid coordinates for routing.');
       return;
     }
     setRouteLoadingId(poi.id);
-    setExpertRoute(null);
     setSelectedRoutePoi(poi);
     setRouteRoutes([]);
     setRouteBounds(null);
@@ -605,22 +790,10 @@ export default function UrbanAgentPage() {
       const coords = routeCoordinates(bestRoute);
       if (coords.length) setRouteBounds(L.latLngBounds(coords));
       setRouteModalOpen(true);
-      setExpertRoute({
-        destination: poi,
-        distance: bestRoute.distance ? `${(bestRoute.distance / 1000).toFixed(1)} km` : undefined,
-        duration: bestRoute.duration ? `${Math.round(bestRoute.duration / 60)} ${t.minutes}` : undefined,
-        valid: bestRoute.esValidation?.valid,
-        warnings: (bestRoute.esValidation?.warnings || []).map((warning) => warning.message || JSON.stringify(warning)),
-        steps: bestRoute.steps || [],
-      });
       recordFeedback('route_requested', { poiId: poi.id, category: poi.category });
     } catch (err: any) {
       setRouteModalOpen(false);
-      setExpertRoute({
-        destination: poi,
-        valid: false,
-        warnings: [err?.message || 'Không thể tính route bằng hệ chuyên gia.'],
-      });
+      setError(err?.message || 'Không thể tính route bằng hệ chuyên gia.');
     } finally {
       setRouteLoadingId('');
     }
@@ -628,6 +801,12 @@ export default function UrbanAgentPage() {
 
   const loadFullItineraryRoute = async () => {
     if (!itinerary.length) return;
+    const canRoute = await requireAuthFor(
+      language === 'vi'
+        ? 'Đăng nhập để xem route chuyên sâu cho toàn bộ lịch trình.'
+        : 'Sign in to inspect the full expert itinerary route.',
+    );
+    if (!canRoute) return;
     setSelectedRoutePoi(null);
     setRouteStops([]);
     setRouteRoutes([]);
@@ -664,8 +843,12 @@ export default function UrbanAgentPage() {
     }
   };
 
+  const itineraryMoveMinutes = itinerary.reduce((sum, item) => sum + (item.travelFromPrevious?.estimatedMinutes || 0), 0);
+  const totalMoveMinutes = itineraryMoveMinutes || Number(savedRouteSummary?.totalDurationMinutes || 0);
+  const weatherText = formatCurrentWeather(weather, t.waiting);
+
   return (
-    <div className="min-h-full space-y-6 text-slate-100">
+    <div className="customer-agent min-h-full space-y-6 text-slate-700">
       <section className="rounded-2xl border border-cyan-400/20 bg-slate-950/80 p-6 shadow-2xl shadow-cyan-950/20">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
@@ -677,19 +860,9 @@ export default function UrbanAgentPage() {
             <p className="mt-3 text-base leading-7 text-slate-300">{t.subtitle}</p>
           </div>
 
-          <div className="grid min-w-[320px] grid-cols-2 gap-2 rounded-xl bg-slate-900 p-1">
-            {(['traveler', 'business'] as Role[]).map((item) => (
-              <button
-                key={item}
-                onClick={() => setRole(item)}
-                className={`flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold transition ${
-                  role === item ? 'bg-cyan-400 text-slate-950' : 'text-slate-300 hover:bg-slate-800'
-                }`}
-              >
-                {item === 'traveler' ? <Users size={18} /> : <Store size={18} />}
-                {roleCopy[item].title}
-              </button>
-            ))}
+          <div className="inline-flex min-w-[260px] items-center justify-center gap-2 rounded-xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-800">
+            <Users size={18} />
+            Chế độ khách du lịch
           </div>
         </div>
       </section>
@@ -698,7 +871,7 @@ export default function UrbanAgentPage() {
         <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
           <div className="mb-4 flex items-start gap-3">
             <div className="rounded-xl bg-cyan-400/10 p-3 text-cyan-300">
-              {role === 'traveler' ? <Compass /> : <Building2 />}
+              <Compass />
             </div>
             <div>
               <h2 className="text-xl font-semibold text-white">{roleCopy[role].title}</h2>
@@ -792,9 +965,17 @@ export default function UrbanAgentPage() {
             </div>
           )}
 
-          <div className="mt-5 rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm leading-6 text-slate-400">
+          {!user && (
+            <div className="mt-4 rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-3 text-sm leading-6 text-cyan-100">
+              {language === 'vi'
+                ? 'Chưa đăng nhập: bạn vẫn có thể khám phá POI cơ bản. Đăng nhập để tạo/lưu lịch trình, dùng route chuyên gia, gửi phản hồi và phân tích seller.'
+                : 'Signed out: basic POI exploration still works. Sign in for saved itineraries, expert routes, feedback and seller analysis.'}
+            </div>
+          )}
+
+          {/* <div className="mt-5 rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm leading-6 text-slate-400">
             <strong className="text-slate-200">Learning loop:</strong> {t.principle}
-          </div>
+          </div> */}
 
           <AgentLearningPanel status={trainingStatus} />
         </div>
@@ -806,12 +987,12 @@ export default function UrbanAgentPage() {
               <MetricCard
                 icon={<Route />}
                 label={t.totalMove}
-                value={`${itinerary.reduce((s, i) => s + (i.travelFromPrevious?.estimatedMinutes || 0), 0)} ${t.minutes}`}
+                value={`${Math.round(totalMoveMinutes)} ${t.minutes}`}
               />
               <MetricCard
                 icon={<CloudSun />}
                 label={t.weather}
-                value={weather?.warning ? t.caution : weather?.current ? t.stable : t.waiting}
+                value={weatherText}
               />
             </div>
 
@@ -821,15 +1002,30 @@ export default function UrbanAgentPage() {
                   <h2 className="text-xl font-semibold text-white">{t.itinerary}</h2>
                   <span className="text-sm text-slate-400">{t.editable}</span>
                 </div>
-                <button
-                  onClick={loadFullItineraryRoute}
-                  disabled={!itinerary.length || Boolean(routeLoadingId)}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-500/15 px-4 py-2 text-sm font-semibold text-purple-100 transition hover:bg-purple-500/25 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {routeLoadingId === 'full-itinerary' ? <Loader2 className="animate-spin" size={16} /> : <Route size={16} />}
-                  {t.fullRoute}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={saveCurrentItinerary}
+                    disabled={!itinerary.length || savingItinerary}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:border disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-600"
+                  >
+                    {savingItinerary ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                    Lưu lịch trình
+                  </button>
+                  <button
+                    onClick={loadFullItineraryRoute}
+                    disabled={!itinerary.length || Boolean(routeLoadingId)}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-600"
+                  >
+                    {routeLoadingId === 'full-itinerary' ? <Loader2 className="animate-spin" size={16} /> : <Route size={16} />}
+                    {t.fullRoute}
+                  </button>
+                </div>
               </div>
+              {saveMessage && (
+                <div className="mb-4 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800">
+                  {saveMessage}
+                </div>
+              )}
               <div className="space-y-3">
                 {itinerary.length === 0 && <EmptyState text={t.emptyItinerary} />}
                 {itinerary.map((item) => (
@@ -877,7 +1073,24 @@ export default function UrbanAgentPage() {
               </div>
             </div>
 
-            <RoutePanel route={expertRoute} text={t} />
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+              <h2 className="mb-4 text-xl font-semibold text-white">Lịch trình đã lưu</h2>
+              {savedItineraries.length === 0 && <EmptyState text="Chưa có lịch trình đã lưu." />}
+              <div className="grid gap-3 md:grid-cols-2">
+                {savedItineraries.map((saved) => (
+                  <button
+                    key={saved.itineraryId}
+                    onClick={() => openSavedItinerary(saved)}
+                    className="rounded-xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-cyan-300 hover:bg-cyan-50"
+                  >
+                    <div className="font-semibold text-white">{saved.query || 'Lịch trình Đà Nẵng'}</div>
+                    <div className="mt-2 text-sm text-slate-400">
+                      {saved.stops?.length || 0} điểm dừng · {saved.durationMinutes || '--'} phút · {saved.transport || 'motorbike'}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
               <h2 className="mb-4 text-xl font-semibold text-white">{t.addable}</h2>
@@ -992,7 +1205,7 @@ function MetricCard({ icon, label, value }: { icon: React.ReactNode; label: stri
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
       <div className="mb-3 text-cyan-300">{icon}</div>
-      <div className="text-2xl font-bold text-white">{value}</div>
+      <div className="break-words text-xl font-bold leading-snug text-white">{value}</div>
       <div className="text-sm text-slate-400">{label}</div>
     </div>
   );
@@ -1325,9 +1538,9 @@ function RouteMapModal({
                 )}
 
                 {!!selectedRoute.esValidation?.fuzzyInsights?.length && (
-                  <div className="rounded-xl border border-blue-400/25 bg-blue-400/10 p-3">
-                    <h3 className="mb-2 font-semibold text-blue-100">{text.routeFuzzy}</h3>
-                    <div className="space-y-2 text-sm text-blue-50">
+                  <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3">
+                    <h3 className="mb-2 font-semibold text-cyan-900">{text.routeFuzzy}</h3>
+                    <div className="space-y-2 text-sm text-slate-700">
                       {selectedRoute.esValidation.fuzzyInsights.map((item, index) => (
                         <p key={`${item.road}-${index}`}>
                           <strong>{item.road}</strong>: {item.label}
@@ -1357,41 +1570,6 @@ function RouteMapModal({
           </aside>
         </div>
       </div>
-    </div>
-  );
-}
-
-function RoutePanel({ route, text }: { route: ExpertRoute | null; text: typeof copy.vi }) {
-  const steps = route?.steps || route?.route || [];
-  return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold text-white">{text.routePanel}</h2>
-          <p className="mt-1 text-sm text-slate-400">{route?.destination?.title || text.routeHint}</p>
-        </div>
-        {route?.valid && <CheckCircle2 className="text-emerald-300" />}
-      </div>
-      {!route && <EmptyState text={text.routeHint} />}
-      {route && (
-        <div className="space-y-3 text-sm text-slate-300">
-          <div className="flex flex-wrap gap-2">
-            {route.distance && <Badge icon={<Map size={14} />}>{route.distance}</Badge>}
-            {route.duration && <Badge icon={<Car size={14} />}>{route.duration}</Badge>}
-          </div>
-          {route.warnings?.map((warning) => (
-            <div key={warning} className="rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-amber-100">
-              {warning}
-            </div>
-          ))}
-          {steps.slice(0, 5).map((step, index) => (
-            <div key={`${step.instructions}-${index}`} className="rounded-lg bg-slate-900 p-3">
-              <span className="mr-2 font-semibold text-cyan-200">{index + 1}.</span>
-              {step.instructions || step.instruction || JSON.stringify(step)}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
