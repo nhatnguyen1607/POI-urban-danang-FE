@@ -24,6 +24,7 @@ import 'leaflet/dist/leaflet.css';
 import { apiClient } from '../../utils/apiClient';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { useAuth } from '../../auth/useAuth';
+import { incrementPoiCounter } from '../../services/poiExperienceService';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -260,6 +261,20 @@ function formatCurrentWeather(weather: any, waitingText: string) {
   return [tempText, description, rainText].filter(Boolean).join(' · ');
 }
 
+function getCurrentLocationOnce() {
+  return new Promise<{ lat: number; lng: number }>((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Trình duyệt không hỗ trợ Geolocation.'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
+      (error) => reject(new Error(error.message || 'Không lấy được vị trí GPS hiện tại.')),
+      { enableHighAccuracy: true, maximumAge: 2500, timeout: 12000 },
+    );
+  });
+}
+
 const copy = {
   vi: {
     heroBadge: 'Intent - Plan - Tools - Route - Memory - Market Signal',
@@ -452,6 +467,7 @@ export default function UrbanAgentPage() {
   const [routeBounds, setRouteBounds] = useState<L.LatLngBoundsExpression | null>(null);
   const [selectedRoutePoi, setSelectedRoutePoi] = useState<PoiResult | null>(null);
   const [routeStops, setRouteStops] = useState<PoiResult[]>([]);
+  const [routeOrigin, setRouteOrigin] = useState<[number, number]>([DA_NANG_CENTER.lat, DA_NANG_CENTER.lon]);
   const [trainingStatus, setTrainingStatus] = useState<AgentTrainingStatus | null>(null);
   const [savedItineraries, setSavedItineraries] = useState<SavedItinerary[]>([]);
   const [savedRouteSummary, setSavedRouteSummary] = useState<SavedItinerary['routeSummary'] | null>(null);
@@ -693,6 +709,7 @@ export default function UrbanAgentPage() {
     ]);
     setPoiResults((items) => items.filter((item) => item.id !== poi.id));
     recordFeedback('add_to_itinerary', { poiId: poi.id, category: poi.category });
+    void incrementPoiCounter(poi.id, 'timesAddedToItinerary');
   };
 
   const saveCurrentItinerary = async () => {
@@ -776,10 +793,13 @@ export default function UrbanAgentPage() {
     setSelectedRouteIndex(0);
     setRouteStops([]);
     try {
+      const origin = await getCurrentLocationOnce().catch(() => ({ lat: DA_NANG_CENTER.lat, lng: DA_NANG_CENTER.lon }));
+      setRouteOrigin([origin.lat, origin.lng]);
       const data = await apiClient.post('/api/route', {
-        origin: { lat: DA_NANG_CENTER.lat, lng: DA_NANG_CENTER.lon },
+        origin,
         destination: { lat: poi.lat, lng: poi.lon },
       });
+      void incrementPoiCounter(poi.id, 'timesRouted');
       const routes = (data.routes || [data]).map(normalizeRouteResult).filter(Boolean) as RouteResult[];
       if (!routes.length) {
         throw new Error('No valid route geometry returned for this place.');
@@ -815,13 +835,15 @@ export default function UrbanAgentPage() {
     setRouteLoadingId('full-itinerary');
     try {
       const segments: RouteResult[] = [];
-      let origin = { lat: DA_NANG_CENTER.lat, lng: DA_NANG_CENTER.lon };
+      let origin = await getCurrentLocationOnce();
+      setRouteOrigin([origin.lat, origin.lng]);
       for (const item of itinerary) {
         if (!isFiniteCoord(item.poi.lat, item.poi.lon)) continue;
         const data = await apiClient.post('/api/route', {
           origin,
           destination: { lat: item.poi.lat, lng: item.poi.lon },
         });
+        void incrementPoiCounter(item.poi.id, 'timesRouted');
         const best = normalizeRouteResult(data.routes?.[0] || data);
         if (best && routeCoordinates(best).length) segments.push(best);
         origin = { lat: item.poi.lat, lng: item.poi.lon };
@@ -1187,6 +1209,7 @@ export default function UrbanAgentPage() {
         selectedIndex={selectedRouteIndex}
         selectedPoi={selectedRoutePoi}
         routeStops={routeStops}
+        origin={routeOrigin}
         bounds={routeBounds}
         loading={Boolean(routeLoadingId)}
         text={t}
@@ -1385,6 +1408,7 @@ function RouteMapModal({
   selectedIndex,
   selectedPoi,
   routeStops,
+  origin,
   bounds,
   loading,
   text,
@@ -1396,6 +1420,7 @@ function RouteMapModal({
   selectedIndex: number;
   selectedPoi: PoiResult | null;
   routeStops: PoiResult[];
+  origin: [number, number];
   bounds: L.LatLngBoundsExpression | null;
   loading: boolean;
   text: typeof copy.vi;
@@ -1404,7 +1429,18 @@ function RouteMapModal({
 }) {
   if (!open) return null;
   const selectedRoute = routes[selectedIndex];
-  const origin = [DA_NANG_CENTER.lat, DA_NANG_CENTER.lon] as [number, number];
+  const isFullItinerary = !selectedPoi && routeStops.length > 1;
+  const selectedSegmentStart =
+    selectedIndex === 0
+      ? { lat: origin[0], lon: origin[1], title: 'Start' }
+      : routeStops[selectedIndex - 1]
+        ? {
+            lat: routeStops[selectedIndex - 1].lat,
+            lon: routeStops[selectedIndex - 1].lon,
+            title: routeStops[selectedIndex - 1].title,
+          }
+        : { lat: origin[0], lon: origin[1], title: 'Start' };
+  const selectedSegmentEnd = routeStops[selectedIndex];
   const formatDistance = (meters?: number) => {
     if (!meters) return '--';
     return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
@@ -1433,30 +1469,48 @@ function RouteMapModal({
         </div>
 
         <div className="grid min-h-0 flex-1 lg:grid-cols-[1fr_380px]">
-          <div className="relative min-h-[420px]">
+          <div className="relative min-h-[420px] bg-slate-100">
             {loading && !selectedRoute && (
-              <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-slate-950/70">
-                <div className="text-center text-slate-300">
-                  <Loader2 className="mx-auto mb-3 animate-spin text-cyan-300" size={34} />
+              <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-white/70 backdrop-blur-sm">
+                <div className="text-center font-semibold text-slate-700">
+                  <Loader2 className="mx-auto mb-3 animate-spin text-cyan-600" size={34} />
                   {text.routeMapHint}
                 </div>
               </div>
             )}
             <MapContainer center={origin} zoom={13} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
-              <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+              <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
               <FitBounds bounds={bounds} />
-              <Marker position={origin} icon={originIcon}>
-                <Popup>Start</Popup>
-              </Marker>
-              {routeStops.filter((poi) => isFiniteCoord(poi.lat, poi.lon)).map((poi, index) => (
-                <Marker key={poi.id} position={[poi.lat, poi.lon]} icon={index === routeStops.length - 1 ? destIcon : stopIcon}>
+              {!isFullItinerary && (
+                <Marker position={origin} icon={originIcon}>
+                  <Popup>Start</Popup>
+                </Marker>
+              )}
+              {isFullItinerary && isFiniteCoord(selectedSegmentStart.lat, selectedSegmentStart.lon) && (
+                <Marker position={[selectedSegmentStart.lat, selectedSegmentStart.lon]} icon={originIcon}>
                   <Popup>
-                    <strong>{text.stopLabel} {index + 1}</strong>
+                    <strong>Đầu chặng {selectedIndex + 1}</strong>
                     <br />
-                    {poi.title}
+                    {selectedSegmentStart.title}
                   </Popup>
                 </Marker>
-              ))}
+              )}
+              {routeStops.filter((poi) => isFiniteCoord(poi.lat, poi.lon)).map((poi, index) => {
+                const isSegmentEnd = isFullItinerary && index === selectedIndex;
+                const isSegmentStart = isFullItinerary && index === selectedIndex - 1;
+                const icon = isSegmentEnd ? destIcon : isSegmentStart ? originIcon : stopIcon;
+                return (
+                  <Marker key={poi.id} position={[poi.lat, poi.lon]} icon={icon}>
+                    <Popup>
+                      <strong>
+                        {isSegmentStart ? `Đầu chặng ${selectedIndex + 1}` : isSegmentEnd ? `Cuối chặng ${selectedIndex + 1}` : `${text.stopLabel} ${index + 1}`}
+                      </strong>
+                      <br />
+                      {poi.title}
+                    </Popup>
+                  </Marker>
+                );
+              })}
               {routes.map((route, index) => {
                 const coords = routeCoordinates(route);
                 if (!coords.length) return null;
@@ -1466,9 +1520,10 @@ function RouteMapModal({
                     key={`route-${index}`}
                     positions={coords}
                     pathOptions={{
-                      color: route.esValidation?.valid ? '#a855f7' : '#f59e0b',
-                      weight: isSelected ? 7 : 4,
-                      opacity: isSelected ? 1 : 0.32,
+                      color: isSelected ? (route.esValidation?.valid ? '#a855f7' : '#f59e0b') : '#64748b',
+                      weight: isSelected ? 7 : 3,
+                      opacity: isSelected ? 1 : 0.18,
+                      dashArray: isSelected ? undefined : '8 10',
                     }}
                     eventHandlers={{ click: () => onSelectRoute(index) }}
                   />
@@ -1505,9 +1560,18 @@ function RouteMapModal({
                       index === selectedIndex ? 'bg-purple-600 text-white' : 'text-slate-400 hover:bg-slate-700'
                     }`}
                   >
-                    Tuyến {index + 1}
+                    Chặng {index + 1}
                   </button>
                 ))}
+              </div>
+            )}
+
+            {isFullItinerary && selectedSegmentEnd && (
+              <div className="mb-4 rounded-xl border border-purple-200 bg-purple-50 p-3 text-sm text-purple-900">
+                <div className="font-semibold">Chặng {selectedIndex + 1}</div>
+                <div className="mt-1 leading-6">
+                  {selectedIndex === 0 ? 'Vị trí hiện tại' : routeStops[selectedIndex - 1]?.title || 'Điểm trước'} → {selectedSegmentEnd.title}
+                </div>
               </div>
             )}
 

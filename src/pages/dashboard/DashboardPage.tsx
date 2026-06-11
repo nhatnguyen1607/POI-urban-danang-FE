@@ -5,6 +5,8 @@ import { Store, Map as MapIcon, Tags, Star, Loader2 } from 'lucide-react';
 import L from 'leaflet';
 import { apiClient } from '../../utils/apiClient';
 import { useLanguage } from '../../i18n/LanguageContext';
+import { useAuth } from '../../auth/useAuth';
+import { PoiExperienceLayer } from '../urban-agent/PoiExperienceLayer';
 
 // Fix leaflet icon issue in react
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -16,6 +18,7 @@ L.Icon.Default.mergeOptions({
 
 export default function DashboardPage() {
   const { language } = useLanguage();
+  const { user, firebaseReady } = useAuth();
   const [source, setSource] = useState('ggmap');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({
@@ -48,6 +51,8 @@ export default function DashboardPage() {
         empty: 'Không có dữ liệu',
         rating: 'Đánh giá',
         fallbackAddress: 'Đà Nẵng',
+        poiSearchTitle: 'Tìm kiếm POI và dẫn đường',
+        poiSearchSubtitle: 'Tìm từng địa điểm theo tên hoặc địa chỉ, lấy GPS hiện tại và sinh đường đi bằng hệ chuyên gia.',
       }
     : {
         title: 'POI Overview (EDA)',
@@ -61,6 +66,8 @@ export default function DashboardPage() {
         empty: 'No data',
         rating: 'Rating',
         fallbackAddress: 'Danang',
+        poiSearchTitle: 'Search POIs and route',
+        poiSearchSubtitle: 'Find a place by name or address, use current GPS, and generate an expert-system route.',
       };
 
   const metrics = [
@@ -99,6 +106,19 @@ export default function DashboardPage() {
     .sort((a, b) => Number(b.rating || 0) - Number(a.rating || 0))
     .slice(0, 10);
 
+  const searchableFeaturedPois = featuredPois.map((poi: any, index) => ({
+    id: poi.id || `featured-${index}`,
+    poiId: poi.id || `featured-${index}`,
+    name: fixText(poi.name) || `POI ${index + 1}`,
+    title: fixText(poi.name) || `POI ${index + 1}`,
+    category: fixText(poi.category),
+    address: fixText(poi.address),
+    district: fixText(poi.address) || copy.fallbackAddress,
+    lat: Number(poi.lat),
+    lon: Number(poi.lng),
+    rating: Number(poi.rating || 0),
+  }));
+
   return (
     <div className="flex flex-col h-full space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
@@ -119,6 +139,16 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      <PoiExperienceLayer
+        user={user}
+        firebaseReady={firebaseReady}
+        itineraryPois={[]}
+        extraPois={searchableFeaturedPois}
+        title={copy.poiSearchTitle}
+        subtitle={copy.poiSearchSubtitle}
+        language={language}
+      />
+
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {metrics.map((metric, idx) => (
@@ -137,8 +167,8 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-[520px]">
         {/* Map Section */}
-        <div className="lg:col-span-2 h-[520px] rounded-2xl overflow-hidden border border-gray-800 bg-gray-900 shadow-xl relative z-0">
-          {loading && <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm z-[999] flex items-center justify-center"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>}
+        <div className="lg:col-span-2 h-[520px] rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-xl shadow-slate-200/70 relative z-0">
+          {loading && <div className="absolute inset-0 bg-white/70 backdrop-blur-sm z-[999] flex items-center justify-center"><Loader2 className="animate-spin text-cyan-600 w-8 h-8" /></div>}
           <MapContainer 
             center={[16.0544, 108.2022]} 
             zoom={12} 
@@ -148,7 +178,7 @@ export default function DashboardPage() {
             <MapResizeHandler trigger={`${source}-${loading}-${featuredPois.length}`} />
             <TileLayer
               attribution='&copy; OpenStreetMap'
-              url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             {!loading && featuredPois.map((poi: any, idx) => (
               poi.lat && poi.lng && (
@@ -165,25 +195,25 @@ export default function DashboardPage() {
         </div>
 
         {/* Data Table Placeholder */}
-        <div className="h-[520px] rounded-2xl border border-gray-800 bg-gray-900/50 backdrop-blur-md p-6 shadow-xl flex flex-col relative overflow-hidden">
-          {loading && <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm z-10 flex items-center justify-center"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>}
-          <h3 className="text-xl font-bold text-white mb-4">{copy.featured}</h3>
+        <div className="h-[520px] rounded-2xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/70 flex flex-col relative overflow-hidden">
+          {loading && <div className="absolute inset-0 bg-white/70 backdrop-blur-sm z-10 flex items-center justify-center"><Loader2 className="animate-spin text-cyan-600 w-8 h-8" /></div>}
+          <h3 className="text-xl font-bold text-slate-950 mb-4">{copy.featured}</h3>
           <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
             {data.sampleData.length === 0 && !loading && (
-              <p className="text-gray-500 text-center mt-10">{copy.empty}</p>
+              <p className="text-slate-500 text-center mt-10">{copy.empty}</p>
             )}
             {featuredPois.map((poi: any, i) => (
-              <div key={i} className="p-4 rounded-xl bg-gray-800/50 border border-gray-700/50 hover:bg-gray-800 transition-colors cursor-pointer">
+              <div key={i} className="p-4 rounded-xl bg-slate-50 border border-slate-200 hover:border-cyan-300 hover:bg-cyan-50/50 transition-colors cursor-pointer">
                 <div className="flex justify-between mb-1">
-                  <h4 className="font-semibold text-gray-200 truncate pr-2" title={fixText(poi.name)}>{fixText(poi.name)}</h4>
-                  <span className="text-amber-400 text-sm flex items-center shrink-0">
+                  <h4 className="font-semibold text-slate-900 truncate pr-2" title={fixText(poi.name)}>{fixText(poi.name)}</h4>
+                  <span className="text-amber-500 text-sm flex items-center shrink-0">
                     <Star size={12} className="mr-1 inline" /> {poi.rating || 'N/A'}
                   </span>
                 </div>
-                <div className="text-sm text-gray-400 flex justify-between items-center">
+                <div className="text-sm text-slate-500 flex justify-between items-center">
                   <span className="truncate pr-2">{fixText(poi.address) || copy.fallbackAddress}</span>
                   {poi.category && (
-                    <span className="text-purple-400 bg-purple-400/10 px-2 py-0.5 rounded text-xs whitespace-nowrap">
+                    <span className="text-purple-700 bg-purple-100 px-2 py-0.5 rounded text-xs whitespace-nowrap">
                       {fixText(poi.category).split(',')[0]}
                     </span>
                   )}
