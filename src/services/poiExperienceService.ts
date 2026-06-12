@@ -81,6 +81,109 @@ export function buildSearchKeywords(...values: string[]) {
   return Array.from(new Set([...tokens, ...prefixes])).slice(0, 120);
 }
 
+const CATEGORY_INTENTS = [
+  {
+    id: 'restaurant',
+    triggers: ['nha hang', 'restaurant'],
+    include: ['nha hang', 'restaurant'],
+    softInclude: [],
+    exclude: ['quan nhau', 'nhau', 'bia', 'beer', 'bar', 'pub', 'lau nuong', 'karaoke'],
+  },
+  {
+    id: 'cafe',
+    triggers: ['cafe', 'ca phe', 'coffee', 'coffe'],
+    include: ['cafe', 'ca phe', 'coffee'],
+    softInclude: ['dessert', 'tra sua', 'bakery'],
+    exclude: ['quan nhau', 'nhau', 'bia', 'beer', 'bar', 'pub'],
+  },
+  {
+    id: 'food',
+    triggers: ['quan an', 'an uong', 'food', 'mon an', 'do an'],
+    include: ['quan an', 'an uong', 'food', 'restaurant', 'nha hang', 'am thuc'],
+    softInclude: ['bun', 'mi quang', 'com', 'pho', 'banh', 'hai san'],
+    exclude: ['quan nhau', 'nhau', 'bia', 'beer', 'bar', 'pub', 'karaoke'],
+  },
+  {
+    id: 'hotel',
+    triggers: ['khach san', 'hotel', 'homestay'],
+    include: ['khach san', 'hotel', 'homestay', 'resort'],
+    softInclude: [],
+    exclude: ['restaurant', 'nha hang', 'quan an', 'cafe', 'bar'],
+  },
+] as const;
+
+function findCategoryIntent(normalizedQuery: string) {
+  return CATEGORY_INTENTS.find((intent) => intent.triggers.some((trigger) => normalizedQuery.includes(trigger)));
+}
+
+function fieldText(poi: SearchablePoi) {
+  return {
+    name: normalizeSearchText(`${poi.name || ''} ${poi.title || ''}`),
+    category: normalizeSearchText(poi.category || ''),
+    address: normalizeSearchText(`${poi.address || ''} ${poi.district || ''}`),
+  };
+}
+
+function scorePoiForSearch(poi: SearchablePoi, normalizedQuery: string) {
+  const tokens = normalizedQuery.split(' ').filter(Boolean);
+  const fields = fieldText(poi);
+  const haystack = `${fields.name} ${fields.category} ${fields.address}`;
+  const intent = findCategoryIntent(normalizedQuery);
+  let score = 0;
+
+  if (fields.name.includes(normalizedQuery)) score += 70;
+  if (fields.category.includes(normalizedQuery)) score += 90;
+  if (fields.address.includes(normalizedQuery)) score += 25;
+  score += tokens.reduce((sum, token) => {
+    if (fields.name.includes(token)) return sum + 12;
+    if (fields.category.includes(token)) return sum + 18;
+    if (fields.address.includes(token)) return sum + 4;
+    return sum;
+  }, 0);
+
+  if (intent) {
+    const exactCategory = intent.include.some((term) => fields.category.includes(term));
+    const exactName = intent.include.some((term) => fields.name.includes(term));
+    const softCategory = intent.softInclude.some((term) => fields.category.includes(term));
+    const excluded = intent.exclude.some((term) => fields.category.includes(term) || fields.name.includes(term));
+
+    if (excluded) score -= 220;
+    if (exactCategory) score += 180;
+    if (exactName) score += 80;
+    if (softCategory) score += 20;
+
+    if (!exactCategory && !exactName) score -= 80;
+  }
+
+  score += Math.min(Number(poi.rating || 0), 5) * 2;
+  score += Math.min(Number(poi.reviewCount || 0), 100) / 20;
+  if (!tokens.every((token) => haystack.includes(token))) score -= 120;
+
+  return score;
+}
+
+export function rankPoisForSearch(searchText: string, pois: SearchablePoi[], maxResults = 8) {
+  const normalized = normalizeSearchText(searchText);
+  if (normalized.length < 2) return [];
+  const intent = findCategoryIntent(normalized);
+
+  return pois
+    .map((poi) => ({ poi, score: scorePoiForSearch(poi, normalized) }))
+    .filter(({ poi, score }) => {
+      if (score <= 0) return false;
+      if (!intent) return true;
+      const fields = fieldText(poi);
+      const hasExactIntent =
+        intent.include.some((term) => fields.category.includes(term) || fields.name.includes(term)) ||
+        intent.softInclude.some((term) => fields.category.includes(term));
+      const isExcluded = intent.exclude.some((term) => fields.category.includes(term) || fields.name.includes(term));
+      return hasExactIntent && !isExcluded;
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxResults)
+    .map(({ poi }) => poi);
+}
+
 export function getAutoContext(weather?: any): AutoContext {
   const now = new Date();
   const hour = now.getHours();
@@ -136,15 +239,10 @@ export async function searchPoisByKeyword(searchText: string) {
       poisRef,
       where('status', '==', 'active'),
       where('searchKeywords', 'array-contains', firstToken.slice(0, 12)),
-      limit(15),
+      limit(50),
     ),
   );
-  return snap.docs
-    .map((item) => toPoi(item.id, item.data()))
-    .filter((poi) => {
-      const haystack = normalizeSearchText(`${poi.name} ${poi.address || ''} ${poi.category || ''} ${poi.district || ''}`);
-      return normalized.split(' ').every((token) => haystack.includes(token));
-    });
+  return rankPoisForSearch(searchText, snap.docs.map((item) => toPoi(item.id, item.data())), 12);
 }
 
 export async function recordSearchLog({

@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
-import { Camera, CheckCircle2, LocateFixed, Loader2, MapPin, Navigation, Route, Search, Star, X } from 'lucide-react';
+import { AlertTriangle, Camera, CheckCircle2, Clock, LocateFixed, Loader2, MapPin, Navigation, Route, Search, ShieldCheck, Star, X } from 'lucide-react';
 import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { apiClient } from '../../utils/apiClient';
@@ -10,6 +10,7 @@ import {
   incrementPoiCounter,
   inferTransport,
   normalizeSearchText,
+  rankPoisForSearch,
   recordSearchLog,
   recordUserAnalyticsEvent,
   searchPoisByKeyword,
@@ -76,6 +77,17 @@ const uiCopy = {
     enableGps: 'Bật GPS',
     confirmReview: 'Xác nhận đến / Đánh giá',
     route: 'Dẫn đường',
+    routePanelTitle: 'Phân tích tuyến hệ chuyên gia',
+    routePanelHint: 'Bấm “Dẫn đường” để xem cảnh báo và hướng dẫn từ hệ chuyên gia.',
+    distance: 'Khoảng cách',
+    time: 'Thời gian',
+    minutes: 'phút',
+    ai: 'AI',
+    validRoute: 'Hợp lệ',
+    routeWarnings: 'Cảnh báo tuyến',
+    trafficAssessment: 'Đánh giá giao thông',
+    routeSteps: 'Hướng dẫn từng bước',
+    noTrafficWarning: 'Chưa có cảnh báo giao thông đáng kể.',
     searchLabel: 'Tìm POI',
     searchPlaceholder: 'Tên cửa hàng hoặc địa chỉ...',
     targetLabel: 'POI mục tiêu',
@@ -122,6 +134,17 @@ const uiCopy = {
     enableGps: 'Enable GPS',
     confirmReview: 'Confirm arrival / Review',
     route: 'Route',
+    routePanelTitle: 'Expert route analysis',
+    routePanelHint: 'Press “Route” to inspect expert-system warnings and directions.',
+    distance: 'Distance',
+    time: 'Time',
+    minutes: 'min',
+    ai: 'AI',
+    validRoute: 'Valid',
+    routeWarnings: 'Route warnings',
+    trafficAssessment: 'Traffic assessment',
+    routeSteps: 'Step-by-step directions',
+    noTrafficWarning: 'No major traffic warning yet.',
     searchLabel: 'Search POIs',
     searchPlaceholder: 'Store name or address...',
     targetLabel: 'Target POI',
@@ -167,19 +190,44 @@ const uiCopy = {
 type PoiExperienceCopy = (typeof uiCopy)[keyof typeof uiCopy];
 
 function fuzzyLocalSearch(query: string, pois: SearchablePoi[]) {
-  const normalized = normalizeSearchText(query);
-  if (normalized.length < 2) return [];
-  const tokens = normalized.split(' ').filter(Boolean);
-  return pois
-    .map((poi) => {
-      const haystack = normalizeSearchText(`${poi.name} ${poi.title || ''} ${poi.address || ''} ${poi.category || ''} ${poi.district || ''}`);
-      const score = tokens.reduce((sum, token) => sum + (haystack.includes(token) ? 1 : 0), 0);
-      return { poi, score };
-    })
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8)
-    .map((item) => item.poi);
+  return rankPoisForSearch(query, pois, 8);
+}
+
+function toSearchablePoi(item: any): SearchablePoi | null {
+  const lat = Number(item?.lat ?? item?.location?.lat);
+  const lon = Number(item?.lon ?? item?.lng ?? item?.location?.lon ?? item?.location?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const id = String(item?.poiId || item?.id || item?.placeId || `${item?.name || item?.title}-${lat}-${lon}`);
+  return {
+    id,
+    poiId: id,
+    title: item?.title || item?.name || 'POI',
+    name: item?.name || item?.title || 'POI',
+    category: item?.category || '',
+    district: item?.district || item?.location?.district || '',
+    address: item?.address || item?.location?.address || item?.district || '',
+    lat,
+    lon,
+    rating: Number(item?.rating || 0),
+    reviewCount: Number(item?.reviewCount || 0),
+  };
+}
+
+async function searchPoisWithAgent(query: string, position: { lat: number; lon: number } | null) {
+  const formData = new FormData();
+  formData.append('concept', query);
+  formData.append('modelVersion', 'v4');
+  const [agentResponse, v4Response] = await Promise.allSettled([
+    apiClient.post('/api/agent/recommend-poi', {
+      query,
+      context: position ? { location: { lat: position.lat, lon: position.lon } } : {},
+      limit: 24,
+    }),
+    apiClient.post('/api/recommend', formData),
+  ]);
+  const agentResults = agentResponse.status === 'fulfilled' && Array.isArray(agentResponse.value?.results) ? agentResponse.value.results : [];
+  const v4Results = v4Response.status === 'fulfilled' && Array.isArray(v4Response.value) ? v4Response.value : [];
+  return [...agentResults, ...v4Results].map(toSearchablePoi).filter(Boolean) as SearchablePoi[];
 }
 
 function routeCoordinates(route: any) {
@@ -226,6 +274,46 @@ interface TravelState {
   sampleCount: number;
 }
 
+interface ExpertRouteResult {
+  route: { coordinates: number[][] };
+  distance: number;
+  duration: number;
+  steps: { instruction?: string; instructions?: string; name?: string }[];
+  esValidation: {
+    valid: boolean;
+    warnings: { message?: string; law?: string; severity?: string }[];
+    fuzzyInsights?: { road?: string; label?: string; score?: number }[];
+    totalRulesChecked?: number;
+  };
+}
+
+function normalizeExpertRoute(input: any): ExpertRouteResult | null {
+  const coordinates = input?.route?.coordinates || input?.geometry?.coordinates || input?.coordinates || [];
+  if (!Array.isArray(coordinates) || !coordinates.length) return null;
+  return {
+    route: { coordinates },
+    distance: Number(input?.distance) || 0,
+    duration: Number(input?.duration) || 0,
+    steps: Array.isArray(input?.steps) ? input.steps : [],
+    esValidation: {
+      valid: Boolean(input?.esValidation?.valid),
+      warnings: Array.isArray(input?.esValidation?.warnings) ? input.esValidation.warnings : [],
+      fuzzyInsights: Array.isArray(input?.esValidation?.fuzzyInsights) ? input.esValidation.fuzzyInsights : [],
+      totalRulesChecked: Number(input?.esValidation?.totalRulesChecked) || 0,
+    },
+  };
+}
+
+function formatRouteDistance(meters?: number) {
+  if (!meters) return '--';
+  return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+}
+
+function formatRouteDuration(seconds?: number, copy?: PoiExperienceCopy) {
+  if (!seconds) return '--';
+  return `${Math.round(seconds / 60)} ${copy?.minutes || 'min'}`;
+}
+
 export function PoiExperienceLayer({
   user,
   itineraryPois,
@@ -266,11 +354,13 @@ export function PoiExperienceLayer({
   const [searchResults, setSearchResults] = useState<SearchablePoi[]>([]);
   const [selectedSearchPoi, setSelectedSearchPoi] = useState<SearchablePoi | null>(null);
   const [routePath, setRoutePath] = useState<[number, number][]>([]);
+  const [routeResult, setRouteResult] = useState<ExpertRouteResult | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const watchIdRef = useRef<number | null>(null);
   const visitRef = useRef<VisitState | null>(null);
   const travelRef = useRef<TravelState | null>(null);
   const loggedSearchRef = useRef('');
+  const searchPositionRef = useRef<{ lat: number; lon: number } | null>(null);
 
   const targetPoi = useMemo(
     () => selectedSearchPoi || allPois.find((poi) => (poi.poiId || poi.id) === activePoiId) || itineraryPois[0] || allPois[0] || null,
@@ -314,6 +404,7 @@ export function PoiExperienceLayer({
 
   useEffect(() => {
     if (!rawPosition) return undefined;
+    searchPositionRef.current = rawPosition;
     let frame = 0;
     const start = displayPosition || rawPosition;
     const startedAt = performance.now();
@@ -440,8 +531,13 @@ export function PoiExperienceLayer({
       if (!showSearch) return;
       setSearching(true);
       try {
-        const remote = firebaseReady ? await searchPoisByKeyword(searchText) : [];
-        const results = remote.length ? remote : fuzzyLocalSearch(searchText, allPois);
+        const [agentResults, remote] = await Promise.all([
+          searchPoisWithAgent(searchText, searchPositionRef.current).catch(() => []),
+          firebaseReady ? searchPoisByKeyword(searchText).catch(() => []) : Promise.resolve([]),
+        ]);
+        const merged = [...agentResults, ...remote, ...fuzzyLocalSearch(searchText, allPois)];
+        const deduped = Array.from(new Map(merged.map((poi) => [poi.poiId || poi.id, poi])).values());
+        const results = rankPoisForSearch(searchText, deduped, 12);
         setSearchResults(results);
         const normalized = normalizeSearchText(searchText);
         if (loggedSearchRef.current !== normalized) {
@@ -456,7 +552,7 @@ export function PoiExperienceLayer({
       }
     }, 300);
     return () => window.clearTimeout(handle);
-  }, [allPois, firebaseReady, searchText, showSearch]);
+  }, [allPois, firebaseReady, searchText, showSearch, user]);
 
   const openManualReview = () => {
     if (targetPoi) setReviewPoi(targetPoi);
@@ -475,15 +571,18 @@ export function PoiExperienceLayer({
       const origin = rawPosition || (displayPosition ? { ...displayPosition, accuracy: 0 } : await getCurrentPositionOnce(ui));
       setRawPosition(origin);
       setDisplayPosition({ lat: origin.lat, lon: origin.lon });
+      setRouteResult(null);
       const data = await apiClient.post('/api/route', {
         origin: { lat: origin.lat, lng: origin.lon },
         destination: { lat: targetPoi.lat, lng: targetPoi.lon },
       });
       void incrementPoiCounter(targetPoi.poiId || targetPoi.id, 'timesRouted');
-      const best = data.routes?.[0] || data;
+      const best = normalizeExpertRoute(data.routes?.[0] || data);
+      if (!best) throw new Error(ui.invalidRoute);
       const coords = routeCoordinates(best);
       if (!coords.length) throw new Error(ui.invalidRoute);
       setRoutePath(coords);
+      setRouteResult(best);
       setTrackingEnabled(true);
     } catch (error) {
       setGpsError(error instanceof Error ? error.message : ui.routeFailed);
@@ -561,6 +660,7 @@ export function PoiExperienceLayer({
               )}
             </MapContainer>
           </div>
+          <ExpertRoutePanel route={routeResult} copy={ui} loading={routeLoading} />
         </div>
 
         <div className="space-y-4">
@@ -588,6 +688,7 @@ export function PoiExperienceLayer({
                       setSearchText(poi.name);
                       setSearchResults([]);
                       setRoutePath([]);
+                      setRouteResult(null);
                       void recordSearchLog({ user, query: searchText || poi.name, resultCount: searchResults.length, selectedPoiId: poi.poiId || poi.id });
                     }}
                     className="block w-full border-b border-slate-200 px-3 py-3 text-left last:border-b-0 hover:bg-cyan-50"
@@ -645,6 +746,113 @@ function StatusPill({ icon, label }: { icon: React.ReactNode; label: string }) {
     <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">
       <span className="text-cyan-600">{icon}</span>
       {label}
+    </div>
+  );
+}
+
+function ExpertRoutePanel({ route, copy, loading }: { route: ExpertRouteResult | null; copy: PoiExperienceCopy; loading: boolean }) {
+  if (!route) {
+    return (
+      <div className="border-t border-slate-200 bg-white p-4">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+          {loading ? <Loader2 className="animate-spin text-purple-500" size={16} /> : <ShieldCheck className="text-cyan-600" size={16} />}
+          {copy.routePanelTitle}
+        </div>
+        <p className="mt-2 text-sm text-slate-500">{copy.routePanelHint}</p>
+      </div>
+    );
+  }
+
+  const warnings = route.esValidation?.warnings || [];
+  const insights = route.esValidation?.fuzzyInsights || [];
+  const steps = route.steps || [];
+
+  return (
+    <div className="space-y-4 border-t border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <ShieldCheck className="text-cyan-600" size={16} />
+            {copy.routePanelTitle}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            {route.esValidation?.totalRulesChecked ? `${route.esValidation.totalRulesChecked} rules checked` : copy.routePanelHint}
+          </p>
+        </div>
+        <span
+          className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
+            route.esValidation?.valid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+          }`}
+        >
+          {route.esValidation?.valid ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+          {route.esValidation?.valid ? copy.validRoute : `${warnings.length} ${copy.routeWarnings}`}
+        </span>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        <RouteMetric icon={<Navigation size={16} />} label={copy.distance} value={formatRouteDistance(route.distance)} />
+        <RouteMetric icon={<Clock size={16} />} label={copy.time} value={formatRouteDuration(route.duration, copy)} />
+        <RouteMetric
+          icon={<ShieldCheck size={16} />}
+          label={copy.ai}
+          value={route.esValidation?.valid ? copy.validRoute : `${warnings.length} ${copy.routeWarnings}`}
+        />
+      </div>
+
+      {!!warnings.length && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-900">
+            <AlertTriangle size={16} />
+            {copy.routeWarnings}
+          </h3>
+          <div className="space-y-1 text-sm text-amber-800">
+            {warnings.slice(0, 4).map((warning, index) => (
+              <p key={`${warning.message}-${index}`}>{warning.message || warning.law || JSON.stringify(warning)}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3">
+        <h3 className="mb-2 text-sm font-semibold text-cyan-950">{copy.trafficAssessment}</h3>
+        {insights.length ? (
+          <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+            {insights.slice(0, 6).map((item, index) => (
+              <p key={`${item.road}-${index}`}>
+                <strong>{item.road || `Segment ${index + 1}`}</strong>: {item.label || copy.noTrafficWarning}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-600">{copy.noTrafficWarning}</p>
+        )}
+      </div>
+
+      {!!steps.length && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <h3 className="mb-3 text-sm font-semibold text-slate-950">{copy.routeSteps}</h3>
+          <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+            {steps.slice(0, 8).map((step, index) => (
+              <div key={`${step.instruction || step.name}-${index}`} className="flex gap-2">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-100 text-xs font-semibold text-purple-700">
+                  {index + 1}
+                </span>
+                <span>{step.instruction || step.instructions || step.name || JSON.stringify(step)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RouteMetric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <div className="mb-2 text-cyan-600">{icon}</div>
+      <div className="text-base font-semibold text-slate-950">{value}</div>
+      <div className="text-xs text-slate-500">{label}</div>
     </div>
   );
 }

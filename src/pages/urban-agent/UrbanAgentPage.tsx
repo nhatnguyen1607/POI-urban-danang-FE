@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import {
   Car,
   CheckCircle2,
@@ -239,37 +239,39 @@ function normalizeRouteResult(input: any): RouteResult | null {
   };
 }
 
-function getWeatherDescription(code?: number) {
+function getWeatherDescription(code: number | undefined, language: 'vi' | 'en') {
   if (code === undefined || code === null) return '';
-  if (code === 0) return 'Trời quang';
-  if ([1, 2, 3].includes(code)) return 'Có mây';
-  if ([45, 48].includes(code)) return 'Có sương mù';
-  if ([51, 53, 55, 56, 57].includes(code)) return 'Mưa phùn';
-  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return 'Có mưa';
-  if ([95, 96, 99].includes(code)) return 'Có dông';
-  return 'Thời tiết hiện tại';
+  const vi = language === 'vi';
+  if (code === 0) return vi ? 'Trời quang' : 'Clear sky';
+  if ([1, 2, 3].includes(code)) return vi ? 'Có mây' : 'Cloudy';
+  if ([45, 48].includes(code)) return vi ? 'Có sương mù' : 'Foggy';
+  if ([51, 53, 55, 56, 57].includes(code)) return vi ? 'Mưa phùn' : 'Drizzle';
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return vi ? 'Có mưa' : 'Rain';
+  if ([95, 96, 99].includes(code)) return vi ? 'Có dông' : 'Thunderstorm';
+  return vi ? 'Thời tiết hiện tại' : 'Current weather';
 }
 
-function formatCurrentWeather(weather: any, waitingText: string) {
+function formatCurrentWeather(weather: any, waitingText: string, language: 'vi' | 'en') {
   const current = weather?.current;
   if (!current) return waitingText;
   const temperature = Number(current.temperature_2m);
   const precipitation = Number(current.precipitation || 0);
-  const description = getWeatherDescription(Number(current.weather_code));
+  const description = getWeatherDescription(Number(current.weather_code), language);
   const tempText = Number.isFinite(temperature) ? `${Math.round(temperature)}°C` : '';
-  const rainText = precipitation > 0 ? `Mưa ${precipitation} mm` : 'Không mưa';
+  const rainText = precipitation > 0
+    ? (language === 'vi' ? `Mưa ${precipitation} mm` : `Rain ${precipitation} mm`)
+    : (language === 'vi' ? 'Không mưa' : 'No rain');
   return [tempText, description, rainText].filter(Boolean).join(' · ');
 }
-
-function getCurrentLocationOnce() {
+function getCurrentLocationOnce(language: 'vi' | 'en' = 'vi') {
   return new Promise<{ lat: number; lng: number }>((resolve, reject) => {
     if (!navigator.geolocation) {
-      reject(new Error('Trình duyệt không hỗ trợ Geolocation.'));
+      reject(new Error(language === 'vi' ? 'Trình duyệt không hỗ trợ Geolocation.' : 'This browser does not support Geolocation.'));
       return;
     }
     navigator.geolocation.getCurrentPosition(
       (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
-      (error) => reject(new Error(error.message || 'Không lấy được vị trí GPS hiện tại.')),
+      (error) => reject(new Error(error.message || (language === 'vi' ? 'Không lấy được vị trí GPS hiện tại.' : 'Could not get the current GPS location.'))),
       { enableHighAccuracy: true, maximumAge: 2500, timeout: 12000 },
     );
   });
@@ -352,6 +354,23 @@ const copy = {
     topCategories: 'Danh mục nổi bật',
     samplePois: 'POI mẫu',
     noExtra: 'Chưa có địa điểm bổ sung không trùng lịch trình.',
+    travelerMode: 'Chế độ khách du lịch',
+    saveItinerary: 'Lưu lịch trình',
+    savedItineraries: 'Lịch trình đã lưu',
+    noSavedItineraries: 'Chưa có lịch trình đã lưu.',
+    defaultSavedTitle: 'Lịch trình Đà Nẵng',
+    savedOpened: 'Đã mở lại lịch trình đã lưu.',
+    saveSuccess: 'Đã lưu thành công.',
+    saveFailed: 'Không thể lưu lịch trình.',
+    suggestedPlace: 'Địa điểm gợi ý',
+    genericPlace: 'Địa điểm',
+    defaultDistrict: 'Đà Nẵng',
+    stopUnit: 'điểm dừng',
+    segmentLabel: 'Chặng',
+    segmentStart: 'Đầu chặng',
+    segmentEnd: 'Cuối chặng',
+    currentLocation: 'Vị trí hiện tại',
+    previousStop: 'Điểm trước',
   },
   en: {
     heroBadge: 'Intent - Plan - Tools - Route - Memory - Market Signal',
@@ -429,6 +448,23 @@ const copy = {
     topCategories: 'Top categories',
     samplePois: 'Sample POIs',
     noExtra: 'No additional non-duplicate places yet.',
+    travelerMode: 'Traveler mode',
+    saveItinerary: 'Save itinerary',
+    savedItineraries: 'Saved itineraries',
+    noSavedItineraries: 'No saved itineraries yet.',
+    defaultSavedTitle: 'Danang itinerary',
+    savedOpened: 'Saved itinerary reopened.',
+    saveSuccess: 'Saved successfully.',
+    saveFailed: 'Could not save itinerary.',
+    suggestedPlace: 'Suggested place',
+    genericPlace: 'Place',
+    defaultDistrict: 'Danang',
+    stopUnit: 'stops',
+    segmentLabel: 'Segment',
+    segmentStart: 'Segment start',
+    segmentEnd: 'Segment end',
+    currentLocation: 'Current location',
+    previousStop: 'Previous stop',
   },
 };
 
@@ -574,10 +610,10 @@ export default function UrbanAgentPage() {
     items.map((item, index) => ({
       id: item.id || `legacy-${index}`,
       type: 'poi',
-      title: item.name || item.title || `Địa điểm ${index + 1}`,
-      name: item.name || item.title || `Địa điểm ${index + 1}`,
-      category: item.category || item.district || 'Địa điểm gợi ý',
-      district: item.district || 'Đà Nẵng',
+      title: item.name || item.title || `${t.genericPlace} ${index + 1}`,
+      name: item.name || item.title || `${t.genericPlace} ${index + 1}`,
+      category: item.category || item.district || t.suggestedPlace,
+      district: item.district || t.defaultDistrict,
       lat: Number(item.lat) || DA_NANG_CENTER.lat,
       lon: Number(item.lon || item.lng) || DA_NANG_CENTER.lon,
       rating: item.rating,
@@ -737,9 +773,9 @@ export default function UrbanAgentPage() {
       if (result?.itinerary) {
         setSavedItineraries((items) => [result.itinerary, ...items.filter((item) => item.itineraryId !== result.itinerary.itineraryId)]);
       }
-      setSaveMessage('Đã lưu thành công.');
+      setSaveMessage(t.saveSuccess);
     } catch (error) {
-      setSaveMessage(error instanceof Error ? error.message : 'Không thể lưu lịch trình.');
+      setSaveMessage(error instanceof Error ? error.message : t.saveFailed);
     } finally {
       setSavingItinerary(false);
     }
@@ -756,10 +792,10 @@ export default function UrbanAgentPage() {
           order: stop.order || index + 1,
           poi: {
             id: snapshot.id || stop.poiId,
-            title: snapshot.title || snapshot.name || `Điểm dừng ${index + 1}`,
-            name: snapshot.name || snapshot.title || `Điểm dừng ${index + 1}`,
-            category: snapshot.category || 'Địa điểm',
-            district: snapshot.district || 'Đà Nẵng',
+            title: snapshot.title || snapshot.name || `${t.stopLabel} ${index + 1}`,
+            name: snapshot.name || snapshot.title || `${t.stopLabel} ${index + 1}`,
+            category: snapshot.category || t.genericPlace,
+            district: snapshot.district || t.defaultDistrict,
             lat: Number(snapshot.lat) || DA_NANG_CENTER.lat,
             lon: Number(snapshot.lon) || DA_NANG_CENTER.lon,
             score: Number(snapshot.score) || 0,
@@ -772,7 +808,7 @@ export default function UrbanAgentPage() {
       }),
     );
     setSavedRouteSummary(saved.routeSummary || null);
-    setSaveMessage('Đã mở lại lịch trình đã lưu.');
+    setSaveMessage(t.savedOpened);
   };
 
   const loadExpertRoute = async (poi: PoiResult) => {
@@ -793,7 +829,7 @@ export default function UrbanAgentPage() {
     setSelectedRouteIndex(0);
     setRouteStops([]);
     try {
-      const origin = await getCurrentLocationOnce().catch(() => ({ lat: DA_NANG_CENTER.lat, lng: DA_NANG_CENTER.lon }));
+      const origin = await getCurrentLocationOnce(language).catch(() => ({ lat: DA_NANG_CENTER.lat, lng: DA_NANG_CENTER.lon }));
       setRouteOrigin([origin.lat, origin.lng]);
       const data = await apiClient.post('/api/route', {
         origin,
@@ -835,7 +871,7 @@ export default function UrbanAgentPage() {
     setRouteLoadingId('full-itinerary');
     try {
       const segments: RouteResult[] = [];
-      let origin = await getCurrentLocationOnce();
+      let origin = await getCurrentLocationOnce(language);
       setRouteOrigin([origin.lat, origin.lng]);
       for (const item of itinerary) {
         if (!isFiniteCoord(item.poi.lat, item.poi.lon)) continue;
@@ -867,7 +903,7 @@ export default function UrbanAgentPage() {
 
   const itineraryMoveMinutes = itinerary.reduce((sum, item) => sum + (item.travelFromPrevious?.estimatedMinutes || 0), 0);
   const totalMoveMinutes = itineraryMoveMinutes || Number(savedRouteSummary?.totalDurationMinutes || 0);
-  const weatherText = formatCurrentWeather(weather, t.waiting);
+  const weatherText = formatCurrentWeather(weather, t.waiting, language);
 
   return (
     <div className="customer-agent min-h-full space-y-6 text-slate-700">
@@ -884,7 +920,7 @@ export default function UrbanAgentPage() {
 
           <div className="inline-flex min-w-[260px] items-center justify-center gap-2 rounded-xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-800">
             <Users size={18} />
-            Chế độ khách du lịch
+            {t.travelerMode}
           </div>
         </div>
       </section>
@@ -1031,7 +1067,7 @@ export default function UrbanAgentPage() {
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:border disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-600"
                   >
                     {savingItinerary ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                    Lưu lịch trình
+                    {t.saveItinerary}
                   </button>
                   <button
                     onClick={loadFullItineraryRoute}
@@ -1096,8 +1132,8 @@ export default function UrbanAgentPage() {
             </div>
 
             <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
-              <h2 className="mb-4 text-xl font-semibold text-white">Lịch trình đã lưu</h2>
-              {savedItineraries.length === 0 && <EmptyState text="Chưa có lịch trình đã lưu." />}
+              <h2 className="mb-4 text-xl font-semibold text-white">{t.savedItineraries}</h2>
+              {savedItineraries.length === 0 && <EmptyState text={t.noSavedItineraries} />}
               <div className="grid gap-3 md:grid-cols-2">
                 {savedItineraries.map((saved) => (
                   <button
@@ -1105,9 +1141,9 @@ export default function UrbanAgentPage() {
                     onClick={() => openSavedItinerary(saved)}
                     className="rounded-xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-cyan-300 hover:bg-cyan-50"
                   >
-                    <div className="font-semibold text-white">{saved.query || 'Lịch trình Đà Nẵng'}</div>
+                    <div className="font-semibold text-white">{saved.query || t.defaultSavedTitle}</div>
                     <div className="mt-2 text-sm text-slate-400">
-                      {saved.stops?.length || 0} điểm dừng · {saved.durationMinutes || '--'} phút · {saved.transport || 'motorbike'}
+                      {saved.stops?.length || 0} {t.stopUnit} · {saved.durationMinutes || '--'} {t.minutes} · {saved.transport || 'motorbike'}
                     </div>
                   </button>
                 ))}
@@ -1489,7 +1525,7 @@ function RouteMapModal({
               {isFullItinerary && isFiniteCoord(selectedSegmentStart.lat, selectedSegmentStart.lon) && (
                 <Marker position={[selectedSegmentStart.lat, selectedSegmentStart.lon]} icon={originIcon}>
                   <Popup>
-                    <strong>Đầu chặng {selectedIndex + 1}</strong>
+                    <strong>{text.segmentStart} {selectedIndex + 1}</strong>
                     <br />
                     {selectedSegmentStart.title}
                   </Popup>
@@ -1503,7 +1539,7 @@ function RouteMapModal({
                   <Marker key={poi.id} position={[poi.lat, poi.lon]} icon={icon}>
                     <Popup>
                       <strong>
-                        {isSegmentStart ? `Đầu chặng ${selectedIndex + 1}` : isSegmentEnd ? `Cuối chặng ${selectedIndex + 1}` : `${text.stopLabel} ${index + 1}`}
+                        {isSegmentStart ? `${text.segmentStart} ${selectedIndex + 1}` : isSegmentEnd ? `${text.segmentEnd} ${selectedIndex + 1}` : `${text.stopLabel} ${index + 1}`}
                       </strong>
                       <br />
                       {poi.title}
@@ -1560,7 +1596,7 @@ function RouteMapModal({
                       index === selectedIndex ? 'bg-purple-600 text-white' : 'text-slate-400 hover:bg-slate-700'
                     }`}
                   >
-                    Chặng {index + 1}
+                    {text.segmentLabel} {index + 1}
                   </button>
                 ))}
               </div>
@@ -1568,9 +1604,9 @@ function RouteMapModal({
 
             {isFullItinerary && selectedSegmentEnd && (
               <div className="mb-4 rounded-xl border border-purple-200 bg-purple-50 p-3 text-sm text-purple-900">
-                <div className="font-semibold">Chặng {selectedIndex + 1}</div>
+                <div className="font-semibold">{text.segmentLabel} {selectedIndex + 1}</div>
                 <div className="mt-1 leading-6">
-                  {selectedIndex === 0 ? 'Vị trí hiện tại' : routeStops[selectedIndex - 1]?.title || 'Điểm trước'} → {selectedSegmentEnd.title}
+                  {selectedIndex === 0 ? text.currentLocation : routeStops[selectedIndex - 1]?.title || text.previousStop} → {selectedSegmentEnd.title}
                 </div>
               </div>
             )}
@@ -1710,3 +1746,4 @@ function PoiCard({
     </div>
   );
 }
+

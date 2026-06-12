@@ -4,7 +4,7 @@ import DashboardPage from './pages/dashboard/DashboardPage';
 import ModelMetricsPage from './pages/analytics/ModelMetricsPage';
 import TSNEClusterPage from './pages/analytics/TSNEClusterPage';
 import UrbanAgentPage from './pages/urban-agent/UrbanAgentPage';
-import { LanguageProvider } from './i18n/LanguageContext';
+import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 import { AuthProvider } from './auth/AuthContext';
 import { useAuth } from './auth/useAuth';
 import { AdminLoginPage, LoginPage, RoleSelectionPage } from './pages/auth/AuthPages';
@@ -26,12 +26,13 @@ const defaultPath: Record<AppRole, string> = {
 
 function RequireRole({ roles }: { roles: AppRole[] }) {
   const { user, role, loading } = useAuth();
+  const { language } = useLanguage();
   const location = useLocation();
 
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f5f8fb] text-sm font-semibold text-slate-600">
-        Đang kiểm tra phiên đăng nhập...
+        {language === 'vi' ? 'Đang kiểm tra phiên đăng nhập...' : 'Checking your sign-in session...'}
       </div>
     );
   }

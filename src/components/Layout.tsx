@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+﻿import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
   Bot,
@@ -16,20 +16,62 @@ import {
   Users,
 } from 'lucide-react';
 import { useAuth } from '../auth/useAuth';
-import { useLanguage } from '../i18n/LanguageContext';
+import { useLanguage, type Language } from '../i18n/LanguageContext';
 import type { AppRole } from '../auth/authContextValue';
 
-const roleLabels: Record<AppRole, string> = {
-  customer: 'Khách du lịch',
-  seller: 'Người kinh doanh',
-  admin: 'Quản trị viên',
+const layoutCopy = {
+  vi: {
+    roles: {
+      customer: 'Khách du lịch',
+      seller: 'Người kinh doanh',
+      admin: 'Quản trị viên',
+    },
+    system: 'Hệ thống đô thị AI',
+    account: 'Tài khoản',
+    language: 'Ngôn ngữ',
+    vietnamese: 'Tiếng Việt',
+    english: 'English',
+    logout: 'Đăng xuất',
+    nav: {
+      sellerAnalytics: 'Phân tích vị trí',
+      businessProfile: 'Hồ sơ địa điểm',
+      adminOverview: 'Tổng quan',
+      modelMetrics: 'Chỉ số mô hình',
+      mapData: 'Bản đồ & dữ liệu',
+      preferences: 'Sở thích cá nhân',
+      feedback: 'Phản hồi',
+    },
+  },
+  en: {
+    roles: {
+      customer: 'Traveler',
+      seller: 'Business owner',
+      admin: 'Administrator',
+    },
+    system: 'AI urban system',
+    account: 'Account',
+    language: 'Language',
+    vietnamese: 'Vietnamese',
+    english: 'English',
+    logout: 'Sign out',
+    nav: {
+      sellerAnalytics: 'Location analytics',
+      businessProfile: 'Business profile',
+      adminOverview: 'Overview',
+      modelMetrics: 'Model metrics',
+      mapData: 'Map & data',
+      preferences: 'Preferences',
+      feedback: 'Feedback',
+    },
+  },
 };
 
 export default function Layout() {
   const { language, setLanguage } = useLanguage();
   const { user, role, signOut } = useAuth();
   const navigate = useNavigate();
-  const navItems = getNavItems(role);
+  const copy = layoutCopy[language];
+  const navItems = getNavItems(role, language);
 
   const handleSignOut = async () => {
     await signOut();
@@ -46,7 +88,7 @@ export default function Layout() {
             </div>
             <div>
               <h1 className="text-base font-bold text-slate-950">Danang UrbanAgent</h1>
-              <p className="text-xs font-medium text-slate-500">{role ? roleLabels[role] : 'Hệ thống đô thị AI'}</p>
+              <p className="text-xs font-medium text-slate-500">{role ? copy.roles[role] : copy.system}</p>
             </div>
           </div>
         </div>
@@ -75,22 +117,22 @@ export default function Layout() {
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
             <div className="mb-2 flex items-center gap-2 font-bold text-slate-950">
               <UserRound size={16} />
-              Tài khoản
+              {copy.account}
             </div>
             <p className="truncate text-slate-600">{user?.displayName || user?.email}</p>
           </div>
 
           <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
             <Languages size={14} />
-            Ngôn ngữ
+            {copy.language}
           </label>
           <select
             value={language}
             onChange={(event) => setLanguage(event.target.value === 'en' ? 'en' : 'vi')}
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-cyan-500"
           >
-            <option value="vi">Tiếng Việt</option>
-            <option value="en">English</option>
+            <option value="vi">{copy.vietnamese}</option>
+            <option value="en">{copy.english}</option>
           </select>
 
           <button
@@ -98,7 +140,7 @@ export default function Layout() {
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100"
           >
             <LogOut size={16} />
-            Đăng xuất
+            {copy.logout}
           </button>
         </div>
       </aside>
@@ -110,7 +152,7 @@ export default function Layout() {
               <MapPin className="text-cyan-700" size={20} />
               Danang UrbanAgent
             </div>
-            <button onClick={handleSignOut} className="rounded-lg border border-slate-200 p-2 text-slate-600">
+            <button onClick={handleSignOut} className="rounded-lg border border-slate-200 p-2 text-slate-600" aria-label={copy.logout}>
               <LogOut size={18} />
             </button>
           </div>
@@ -140,30 +182,31 @@ export default function Layout() {
   );
 }
 
-function getNavItems(role: AppRole | null) {
+function getNavItems(role: AppRole | null, language: Language) {
+  const nav = layoutCopy[language].nav;
   if (role === 'seller') {
     return [
-      { name: 'Phân tích vị trí', path: '/seller', icon: <BarChart3 size={20} />, end: true },
-      { name: 'Hồ sơ địa điểm', path: '/seller/business-profile', icon: <Store size={20} /> },
+      { name: nav.sellerAnalytics, path: '/seller', icon: <BarChart3 size={20} />, end: true },
+      { name: nav.businessProfile, path: '/seller/business-profile', icon: <Store size={20} /> },
     ];
   }
 
   if (role === 'admin') {
     return [
-      { name: 'Tổng quan', path: '/admin', icon: <ShieldCheck size={20} />, end: true },
+      { name: nav.adminOverview, path: '/admin', icon: <ShieldCheck size={20} />, end: true },
       { name: 'Users', path: '/admin/users', icon: <Users size={20} /> },
       { name: 'POIs', path: '/admin/pois', icon: <Database size={20} /> },
       { name: 'Reviews', path: '/admin/reviews', icon: <MessageSquareHeart size={20} /> },
       { name: 'System', path: '/admin/system', icon: <Settings size={20} /> },
-      { name: 'Chỉ số mô hình', path: '/admin/model-metrics', icon: <LineChart size={20} /> },
+      { name: nav.modelMetrics, path: '/admin/model-metrics', icon: <LineChart size={20} /> },
       { name: 't-SNE Cluster', path: '/admin/tsne-cluster', icon: <Network size={20} /> },
     ];
   }
 
   return [
     { name: 'Urban Agent', path: '/urban-agent', icon: <Bot size={20} /> },
-    { name: 'Bản đồ & dữ liệu', path: '/', icon: <MapPin size={20} />, end: true },
-    { name: 'Sở thích cá nhân', path: '/preferences', icon: <UserRound size={20} /> },
-    { name: 'Phản hồi', path: '/feedback', icon: <MessageSquareHeart size={20} /> },
+    { name: nav.mapData, path: '/', icon: <MapPin size={20} />, end: true },
+    { name: nav.preferences, path: '/preferences', icon: <UserRound size={20} /> },
+    { name: nav.feedback, path: '/feedback', icon: <MessageSquareHeart size={20} /> },
   ];
 }
