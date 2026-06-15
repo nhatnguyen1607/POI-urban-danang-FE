@@ -18,6 +18,7 @@ import {
   UploadCloud,
   X,
 } from 'lucide-react';
+import { useRef } from 'react';
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -163,6 +164,9 @@ interface SavedItinerary {
 }
 
 const DA_NANG_CENTER = { lat: 16.0544, lon: 108.2022 };
+const ROUTE_REROUTE_DISTANCE_M = 35;
+const ROUTE_REROUTE_MIN_INTERVAL_MS = 12000;
+const ROUTE_MAX_GPS_ACCURACY_M = 100;
 const originIcon = new L.Icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
@@ -213,6 +217,22 @@ function FitBounds({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
 
 function isFiniteCoord(lat?: number, lon?: number) {
   return Number.isFinite(lat) && Number.isFinite(lon);
+}
+
+function haversineMeters(
+  a: { lat: number; lon?: number; lng?: number },
+  b: { lat: number; lon?: number; lng?: number },
+) {
+  const earthRadiusM = 6371000;
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const lat1 = toRadians(a.lat);
+  const lat2 = toRadians(b.lat);
+  const deltaLat = toRadians(b.lat - a.lat);
+  const deltaLon = toRadians((b.lon ?? b.lng ?? 0) - (a.lon ?? a.lng ?? 0));
+  const value =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+  return earthRadiusM * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
 }
 
 function routeCoordinates(route?: RouteResult) {
@@ -504,11 +524,19 @@ export default function UrbanAgentPage() {
   const [selectedRoutePoi, setSelectedRoutePoi] = useState<PoiResult | null>(null);
   const [routeStops, setRouteStops] = useState<PoiResult[]>([]);
   const [routeOrigin, setRouteOrigin] = useState<[number, number]>([DA_NANG_CENTER.lat, DA_NANG_CENTER.lon]);
+  const [currentLocation, setCurrentLocation] = useState(DA_NANG_CENTER);
+  const [liveRouteEnabled, setLiveRouteEnabled] = useState(false);
+  const [routeGpsAccuracy, setRouteGpsAccuracy] = useState<number | null>(null);
+  const [routeGpsError, setRouteGpsError] = useState('');
   const [trainingStatus, setTrainingStatus] = useState<AgentTrainingStatus | null>(null);
   const [savedItineraries, setSavedItineraries] = useState<SavedItinerary[]>([]);
   const [savedRouteSummary, setSavedRouteSummary] = useState<SavedItinerary['routeSummary'] | null>(null);
   const [savingItinerary, setSavingItinerary] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const routeWatchIdRef = useRef<number | null>(null);
+  const lastReroutePositionRef = useRef<{ lat: number; lng: number } | null>(null);
+  const lastRerouteAtRef = useRef(0);
+  const rerouteInFlightRef = useRef(false);
 
   useEffect(() => {
     setQuery(roleCopy[role].sample);
@@ -569,8 +597,6 @@ export default function UrbanAgentPage() {
       mounted = false;
     };
   }, [user]);
-
-  const context = useMemo(() => ({ location: DA_NANG_CENTER }), []);
 
   const requireAuthFor = async (message: string) => {
     if (user) return true;
@@ -633,6 +659,19 @@ export default function UrbanAgentPage() {
     setError('');
     try {
       if (role === 'traveler') {
+        const gpsLocation = await getCurrentLocationOnce(language).catch(() => ({
+          lat: currentLocation.lat,
+          lng: currentLocation.lon,
+        }));
+        const nextLocation = { lat: gpsLocation.lat, lon: gpsLocation.lng };
+        setCurrentLocation(nextLocation);
+        const semanticModel = {
+          enabled: modelVersion === 'v2' || modelVersion === 'v4',
+          version: modelVersion,
+          topK: 200,
+          candidateLimit: 200,
+        };
+        const liveContext = { location: nextLocation, durationMinutes: tripDurationMinutes };
         const formData = new FormData();
         formData.append('concept', query);
         formData.append('modelVersion', modelVersion);
@@ -640,7 +679,7 @@ export default function UrbanAgentPage() {
         const itineraryRequest = user
           ? apiClient.post('/api/agent/create-itinerary', {
               query,
-              context: { ...context, durationMinutes: tripDurationMinutes },
+              context: { ...liveContext, semanticModel },
               transport,
               limit: 6,
               durationMinutes: tripDurationMinutes,
@@ -648,9 +687,16 @@ export default function UrbanAgentPage() {
           : Promise.resolve({ itinerary: [] });
         const [itineraryData, recommendationData, weatherData, multimodalData] = await Promise.allSettled([
           itineraryRequest,
-          apiClient.post('/api/agent/recommend-poi', { query, context, limit: 14 }),
-          apiClient.get(`/api/weather/forecast?lat=${DA_NANG_CENTER.lat}&lon=${DA_NANG_CENTER.lon}`),
-          apiClient.post('/api/recommend', formData),
+          apiClient.post('/api/agent/recommend-poi', {
+            query,
+            context: {
+              ...liveContext,
+              semanticModel: user ? { enabled: false, version: modelVersion } : semanticModel,
+            },
+            limit: 14,
+          }),
+          apiClient.get(`/api/weather/forecast?lat=${nextLocation.lat}&lon=${nextLocation.lon}`),
+          imageFile ? apiClient.post('/api/recommend', formData) : Promise.resolve([]),
         ]);
 
         if (itineraryData.status !== 'fulfilled') throw itineraryData.reason;
@@ -761,7 +807,7 @@ export default function UrbanAgentPage() {
         query,
         durationMinutes: tripDurationMinutes,
         transport,
-        origin: { ...DA_NANG_CENTER, label: 'Đà Nẵng' },
+        origin: { ...currentLocation, label: 'Vị trí hiện tại' },
         itinerary,
         routeSummary: {
           totalDurationMinutes: itinerary.reduce((sum, item) => sum + (item.travelFromPrevious?.estimatedMinutes || 0), 0),
@@ -830,7 +876,10 @@ export default function UrbanAgentPage() {
     setRouteStops([]);
     try {
       const origin = await getCurrentLocationOnce(language).catch(() => ({ lat: DA_NANG_CENTER.lat, lng: DA_NANG_CENTER.lon }));
+      setCurrentLocation({ lat: origin.lat, lon: origin.lng });
       setRouteOrigin([origin.lat, origin.lng]);
+      lastReroutePositionRef.current = origin;
+      lastRerouteAtRef.current = Date.now();
       const data = await apiClient.post('/api/route', {
         origin,
         destination: { lat: poi.lat, lng: poi.lon },
@@ -872,7 +921,10 @@ export default function UrbanAgentPage() {
     try {
       const segments: RouteResult[] = [];
       let origin = await getCurrentLocationOnce(language);
+      setCurrentLocation({ lat: origin.lat, lon: origin.lng });
       setRouteOrigin([origin.lat, origin.lng]);
+      lastReroutePositionRef.current = origin;
+      lastRerouteAtRef.current = Date.now();
       for (const item of itinerary) {
         if (!isFiniteCoord(item.poi.lat, item.poi.lon)) continue;
         const data = await apiClient.post('/api/route', {
@@ -900,6 +952,83 @@ export default function UrbanAgentPage() {
       setRouteLoadingId('');
     }
   };
+
+  useEffect(() => {
+    if (!routeModalOpen || !navigator.geolocation || !routeStops.length) {
+      if (routeWatchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(routeWatchIdRef.current);
+      }
+      routeWatchIdRef.current = null;
+      setLiveRouteEnabled(false);
+      return undefined;
+    }
+
+    setRouteGpsError('');
+    setLiveRouteEnabled(true);
+    routeWatchIdRef.current = navigator.geolocation.watchPosition(
+      async (position) => {
+        const next = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        };
+        setRouteOrigin([next.lat, next.lng]);
+        setCurrentLocation({ lat: next.lat, lon: next.lng });
+        setRouteGpsAccuracy(position.coords.accuracy);
+        setRouteGpsError('');
+
+        if (position.coords.accuracy > ROUTE_MAX_GPS_ACCURACY_M) return;
+        const previous = lastReroutePositionRef.current;
+        const movedMeters = previous ? haversineMeters(previous, next) : Number.POSITIVE_INFINITY;
+        const enoughTimePassed = Date.now() - lastRerouteAtRef.current >= ROUTE_REROUTE_MIN_INTERVAL_MS;
+        if (movedMeters < ROUTE_REROUTE_DISTANCE_M || !enoughTimePassed || rerouteInFlightRef.current) return;
+
+        const target = selectedRoutePoi || routeStops[0];
+        if (!target || !isFiniteCoord(target.lat, target.lon)) return;
+        rerouteInFlightRef.current = true;
+        setRouteLoadingId('live-reroute');
+        try {
+          const data = await apiClient.post('/api/route', {
+            origin: next,
+            destination: { lat: target.lat, lng: target.lon },
+          });
+          const recalculated = (data.routes || [data]).map(normalizeRouteResult).filter(Boolean) as RouteResult[];
+          if (!recalculated.length) return;
+
+          if (selectedRoutePoi) {
+            setRouteRoutes(recalculated);
+            setSelectedRouteIndex(0);
+          } else {
+            setRouteRoutes((existing) => [recalculated[0], ...existing.slice(1)]);
+          }
+          const coords = routeCoordinates(recalculated[0]);
+          if (coords.length) setRouteBounds(L.latLngBounds([[next.lat, next.lng], ...coords]));
+          lastReroutePositionRef.current = next;
+          lastRerouteAtRef.current = Date.now();
+          void recordFeedback('route_recalculated', {
+            targetPoiId: target.id,
+            movedMeters: Math.round(movedMeters),
+            accuracy: Math.round(position.coords.accuracy),
+          });
+        } catch (routeError) {
+          setRouteGpsError(routeError instanceof Error ? routeError.message : 'Không thể cập nhật route real-time.');
+        } finally {
+          rerouteInFlightRef.current = false;
+          setRouteLoadingId('');
+        }
+      },
+      (gpsError) => {
+        setRouteGpsError(gpsError.message || 'Không thể theo dõi GPS real-time.');
+        setLiveRouteEnabled(false);
+      },
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 12000 },
+    );
+
+    return () => {
+      if (routeWatchIdRef.current !== null) navigator.geolocation.clearWatch(routeWatchIdRef.current);
+      routeWatchIdRef.current = null;
+      rerouteInFlightRef.current = false;
+    };
+  }, [routeModalOpen, routeStops, selectedRoutePoi]);
 
   const itineraryMoveMinutes = itinerary.reduce((sum, item) => sum + (item.travelFromPrevious?.estimatedMinutes || 0), 0);
   const totalMoveMinutes = itineraryMoveMinutes || Number(savedRouteSummary?.totalDurationMinutes || 0);
@@ -1248,6 +1377,9 @@ export default function UrbanAgentPage() {
         origin={routeOrigin}
         bounds={routeBounds}
         loading={Boolean(routeLoadingId)}
+        liveRouteEnabled={liveRouteEnabled}
+        gpsAccuracy={routeGpsAccuracy}
+        gpsError={routeGpsError}
         text={t}
         onClose={() => setRouteModalOpen(false)}
         onSelectRoute={(index) => {
@@ -1447,6 +1579,9 @@ function RouteMapModal({
   origin,
   bounds,
   loading,
+  liveRouteEnabled,
+  gpsAccuracy,
+  gpsError,
   text,
   onClose,
   onSelectRoute,
@@ -1459,6 +1594,9 @@ function RouteMapModal({
   origin: [number, number];
   bounds: L.LatLngBoundsExpression | null;
   loading: boolean;
+  liveRouteEnabled: boolean;
+  gpsAccuracy: number | null;
+  gpsError: string;
   text: typeof copy.vi;
   onClose: () => void;
   onSelectRoute: (index: number) => void;
@@ -1498,6 +1636,14 @@ function RouteMapModal({
               {selectedPoi ? `${text.routeMapTitle}: ${selectedPoi.title}` : text.fullRouteTitle}
             </h2>
             <p className="truncate text-sm text-slate-400">{text.routeMapHint}</p>
+            <div className="mt-1 flex items-center gap-2 text-xs">
+              <span className={liveRouteEnabled ? 'text-emerald-400' : 'text-slate-500'}>
+                {liveRouteEnabled ? 'GPS real-time đang bật' : 'GPS real-time đang tắt'}
+              </span>
+              {gpsAccuracy !== null && <span className="text-slate-500">±{Math.round(gpsAccuracy)} m</span>}
+              {loading && <span className="text-cyan-400">Đang cập nhật route...</span>}
+            </div>
+            {gpsError && <p className="mt-1 text-xs text-amber-400">{gpsError}</p>}
           </div>
           <button onClick={onClose} className="rounded-xl bg-slate-800 p-2 text-slate-400 hover:text-white">
             <X size={20} />
