@@ -25,6 +25,7 @@ export function LoginPage() {
   const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState('');
@@ -39,6 +40,9 @@ export function LoginPage() {
     setSubmitting(true);
     setLocalError('');
     try {
+      if (mode === 'register' && password !== confirmPassword) {
+        throw new Error('Mật khẩu nhập lại không khớp.');
+      }
       await (mode === 'login' ? signInWithEmail(email, password) : registerWithEmail(email, password));
       navigate('/chon-vai-tro', { replace: true });
     } catch (error) {
@@ -62,10 +66,23 @@ export function LoginPage() {
   };
 
   return (
-    <AuthShell badge="Danang UrbanAgent" title="Đăng nhập tài khoản" subtitle="Lưu lịch trình, phản hồi và phân tích kinh doanh theo đúng vai trò của bạn.">
+    <AuthShell
+      badge="Danang UrbanAgent"
+      title={mode === 'login' ? 'Đăng nhập tài khoản' : 'Đăng kí tài khoản'}
+      subtitle="Lưu lịch trình, phản hồi và phân tích kinh doanh theo đúng vai trò của bạn."
+    >
       <form onSubmit={submit} className="space-y-4">
         <Input icon={<Mail size={18} />} type="email" value={email} onChange={setEmail} placeholder="Email" />
         <Input icon={<LockKeyhole size={18} />} type="password" value={password} onChange={setPassword} placeholder="Mật khẩu" />
+        {mode === 'register' && (
+          <Input
+            icon={<LockKeyhole size={18} />}
+            type="password"
+            value={confirmPassword}
+            onChange={setConfirmPassword}
+            placeholder="Nhập lại mật khẩu"
+          />
+        )}
         {(localError || authError) && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{localError || authError}</p>}
         <button
           type="submit"
@@ -86,7 +103,11 @@ export function LoginPage() {
         </button>
         <button
           type="button"
-          onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+          onClick={() => {
+            setMode(mode === 'login' ? 'register' : 'login');
+            setConfirmPassword('');
+            setLocalError('');
+          }}
           className="w-full text-sm font-medium text-cyan-700 hover:text-cyan-800"
         >
           {mode === 'login' ? 'Chưa có tài khoản? Tạo tài khoản mới' : 'Đã có tài khoản? Quay lại đăng nhập'}
