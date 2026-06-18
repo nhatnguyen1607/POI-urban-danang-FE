@@ -300,17 +300,19 @@ function getCurrentLocationOnce(language: 'vi' | 'en' = 'vi') {
 }
 
 function openGrabBooking(params: {
-  pickupLat: number;
-  pickupLng: number;
+  pickupLat?: number;
+  pickupLng?: number;
   dropoffLat: number;
   dropoffLng: number;
   dropoffName: string;
   dropoffAddress: string;
 }) {
+  const pickupParams = Number.isFinite(params.pickupLat) && Number.isFinite(params.pickupLng)
+    ? `&pickupLatitude=${params.pickupLat}&pickupLongitude=${params.pickupLng}`
+    : '';
   const grabUrl =
     `grab://open?screenType=BOOKING` +
-    `&pickupLatitude=${params.pickupLat}` +
-    `&pickupLongitude=${params.pickupLng}` +
+    pickupParams +
     `&dropOffLatitude=${params.dropoffLat}` +
     `&dropOffLongitude=${params.dropoffLng}` +
     `&dropOffAddress=${encodeURIComponent(params.dropoffAddress)}` +
@@ -408,6 +410,7 @@ const copy = {
     bookingGrab: 'Đang mở Grab...',
     grabNoDestination: 'Lịch trình đã lưu chưa có điểm đến hợp lệ để đặt xe.',
     grabGpsFailed: 'Không lấy được vị trí GPS hiện tại để mở Grab.',
+    grabPickupInApp: 'Trình duyệt đang chặn GPS. Đã mở Grab với điểm đến, hãy chọn điểm đón trong Grab.',
     suggestedPlace: 'Địa điểm gợi ý',
     genericPlace: 'Địa điểm',
     defaultDistrict: 'Đà Nẵng',
@@ -506,6 +509,7 @@ const copy = {
     bookingGrab: 'Opening Grab...',
     grabNoDestination: 'This saved itinerary does not have a valid destination for booking.',
     grabGpsFailed: 'Could not get your current GPS location to open Grab.',
+    grabPickupInApp: 'The browser blocked GPS. Grab opened with the destination, choose pickup inside Grab.',
     suggestedPlace: 'Suggested place',
     genericPlace: 'Place',
     defaultDistrict: 'Danang',
@@ -907,24 +911,36 @@ export default function UrbanAgentPage() {
     }
     setBookingGrabId(destination.id);
     setSaveMessage('');
+    const dropoff = {
+      dropoffLat: destination.lat,
+      dropoffLng: destination.lon,
+      dropoffName: destination.name || destination.title,
+      dropoffAddress: destination.address || destination.district || destination.title,
+    };
     try {
       const pickup = await getCurrentLocationOnce(language);
       setCurrentLocation({ lat: pickup.lat, lon: pickup.lng });
       openGrabBooking({
         pickupLat: pickup.lat,
         pickupLng: pickup.lng,
-        dropoffLat: destination.lat,
-        dropoffLng: destination.lon,
-        dropoffName: destination.name || destination.title,
-        dropoffAddress: destination.address || destination.district || destination.title,
+        ...dropoff,
       });
       recordFeedback('grab_booking_opened', {
         itineraryId: openedSavedItineraryId,
         poiId: destination.id,
         category: destination.category,
+        pickupSource: 'browser_gps',
       });
     } catch (error) {
-      setSaveMessage(error instanceof Error ? error.message : t.grabGpsFailed);
+      openGrabBooking(dropoff);
+      setSaveMessage(t.grabPickupInApp);
+      recordFeedback('grab_booking_opened', {
+        itineraryId: openedSavedItineraryId,
+        poiId: destination.id,
+        category: destination.category,
+        pickupSource: 'grab_app',
+        gpsError: error instanceof Error ? error.message : t.grabGpsFailed,
+      });
     } finally {
       setBookingGrabId('');
     }
