@@ -858,6 +858,7 @@ export default function UrbanAgentPage() {
       });
       if (result?.itinerary) {
         setSavedItineraries((items) => [result.itinerary, ...items.filter((item) => item.itineraryId !== result.itinerary.itineraryId)]);
+        setOpenedSavedItineraryId(result.itinerary.itineraryId);
       }
       setSaveMessage(t.saveSuccess);
     } catch (error) {
