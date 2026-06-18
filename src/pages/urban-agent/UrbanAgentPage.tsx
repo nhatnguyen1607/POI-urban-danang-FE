@@ -40,10 +40,12 @@ interface PoiResult {
   id: string;
   title: string;
   name: string;
+  address?: string;
   category: string;
   district: string;
   lat: number;
   lon: number;
+  hasCoordinates?: boolean;
   score: number;
   rating?: number;
   reason: string;
@@ -297,6 +299,26 @@ function getCurrentLocationOnce(language: 'vi' | 'en' = 'vi') {
   });
 }
 
+function openGrabBooking(params: {
+  pickupLat: number;
+  pickupLng: number;
+  dropoffLat: number;
+  dropoffLng: number;
+  dropoffName: string;
+  dropoffAddress: string;
+}) {
+  const grabUrl =
+    `grab://open?screenType=BOOKING` +
+    `&pickupLatitude=${params.pickupLat}` +
+    `&pickupLongitude=${params.pickupLng}` +
+    `&dropOffLatitude=${params.dropoffLat}` +
+    `&dropOffLongitude=${params.dropoffLng}` +
+    `&dropOffAddress=${encodeURIComponent(params.dropoffAddress)}` +
+    `&dropOffName=${encodeURIComponent(params.dropoffName)}`;
+
+  window.location.href = grabUrl;
+}
+
 const copy = {
   vi: {
     heroBadge: 'Intent - Plan - Tools - Route - Memory - Market Signal',
@@ -382,6 +404,10 @@ const copy = {
     savedOpened: 'Đã mở lại lịch trình đã lưu.',
     saveSuccess: 'Đã lưu thành công.',
     saveFailed: 'Không thể lưu lịch trình.',
+    bookGrab: 'Đặt xe ngay',
+    bookingGrab: 'Đang mở Grab...',
+    grabNoDestination: 'Lịch trình đã lưu chưa có điểm đến hợp lệ để đặt xe.',
+    grabGpsFailed: 'Không lấy được vị trí GPS hiện tại để mở Grab.',
     suggestedPlace: 'Địa điểm gợi ý',
     genericPlace: 'Địa điểm',
     defaultDistrict: 'Đà Nẵng',
@@ -476,6 +502,10 @@ const copy = {
     savedOpened: 'Saved itinerary reopened.',
     saveSuccess: 'Saved successfully.',
     saveFailed: 'Could not save itinerary.',
+    bookGrab: 'Book Grab now',
+    bookingGrab: 'Opening Grab...',
+    grabNoDestination: 'This saved itinerary does not have a valid destination for booking.',
+    grabGpsFailed: 'Could not get your current GPS location to open Grab.',
     suggestedPlace: 'Suggested place',
     genericPlace: 'Place',
     defaultDistrict: 'Danang',
@@ -531,7 +561,9 @@ export default function UrbanAgentPage() {
   const [trainingStatus, setTrainingStatus] = useState<AgentTrainingStatus | null>(null);
   const [savedItineraries, setSavedItineraries] = useState<SavedItinerary[]>([]);
   const [savedRouteSummary, setSavedRouteSummary] = useState<SavedItinerary['routeSummary'] | null>(null);
+  const [openedSavedItineraryId, setOpenedSavedItineraryId] = useState('');
   const [savingItinerary, setSavingItinerary] = useState(false);
+  const [bookingGrabId, setBookingGrabId] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
   const routeWatchIdRef = useRef<number | null>(null);
   const lastReroutePositionRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -547,6 +579,7 @@ export default function UrbanAgentPage() {
     setRouteModalOpen(false);
     setRouteStops([]);
     setSavedRouteSummary(null);
+    setOpenedSavedItineraryId('');
   }, [role, roleCopy]);
 
   useEffect(() => {
@@ -638,10 +671,12 @@ export default function UrbanAgentPage() {
       type: 'poi',
       title: item.name || item.title || `${t.genericPlace} ${index + 1}`,
       name: item.name || item.title || `${t.genericPlace} ${index + 1}`,
+      address: item.address || item.formatted_address,
       category: item.category || item.district || t.suggestedPlace,
       district: item.district || t.defaultDistrict,
       lat: Number(item.lat) || DA_NANG_CENTER.lat,
       lon: Number(item.lon || item.lng) || DA_NANG_CENTER.lon,
+      hasCoordinates: Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon || item.lng)),
       rating: item.rating,
       score: Math.round(Number(item.score || 0)),
       reason: item.desc || item.reason || 'Gợi ý từ mô hình đa phương thức Version 4.',
@@ -657,6 +692,7 @@ export default function UrbanAgentPage() {
   const runAgent = async () => {
     setLoading(true);
     setError('');
+    setOpenedSavedItineraryId('');
     try {
       if (role === 'traveler') {
         const gpsLocation = await getCurrentLocationOnce(language).catch(() => ({
@@ -834,16 +870,21 @@ export default function UrbanAgentPage() {
     setItinerary(
       (saved.stops || []).map((stop, index) => {
         const snapshot = stop.poiSnapshot || {};
+        const snapshotLat = Number(snapshot.lat);
+        const snapshotLon = Number(snapshot.lon);
+        const hasCoordinates = Number.isFinite(snapshotLat) && Number.isFinite(snapshotLon);
         return {
           order: stop.order || index + 1,
           poi: {
             id: snapshot.id || stop.poiId,
             title: snapshot.title || snapshot.name || `${t.stopLabel} ${index + 1}`,
             name: snapshot.name || snapshot.title || `${t.stopLabel} ${index + 1}`,
+            address: snapshot.address,
             category: snapshot.category || t.genericPlace,
             district: snapshot.district || t.defaultDistrict,
-            lat: Number(snapshot.lat) || DA_NANG_CENTER.lat,
-            lon: Number(snapshot.lon) || DA_NANG_CENTER.lon,
+            lat: hasCoordinates ? snapshotLat : DA_NANG_CENTER.lat,
+            lon: hasCoordinates ? snapshotLon : DA_NANG_CENTER.lon,
+            hasCoordinates,
             score: Number(snapshot.score) || 0,
             rating: Number(snapshot.rating) || undefined,
             reason: stop.reason || '',
@@ -854,7 +895,39 @@ export default function UrbanAgentPage() {
       }),
     );
     setSavedRouteSummary(saved.routeSummary || null);
+    setOpenedSavedItineraryId(saved.itineraryId);
     setSaveMessage(t.savedOpened);
+  };
+
+  const handleBookGrab = async (destination: PoiResult) => {
+    if (!openedSavedItineraryId) return;
+    if (destination.hasCoordinates === false || !isFiniteCoord(destination.lat, destination.lon)) {
+      setSaveMessage(t.grabNoDestination);
+      return;
+    }
+    setBookingGrabId(destination.id);
+    setSaveMessage('');
+    try {
+      const pickup = await getCurrentLocationOnce(language);
+      setCurrentLocation({ lat: pickup.lat, lon: pickup.lng });
+      openGrabBooking({
+        pickupLat: pickup.lat,
+        pickupLng: pickup.lng,
+        dropoffLat: destination.lat,
+        dropoffLng: destination.lon,
+        dropoffName: destination.name || destination.title,
+        dropoffAddress: destination.address || destination.district || destination.title,
+      });
+      recordFeedback('grab_booking_opened', {
+        itineraryId: openedSavedItineraryId,
+        poiId: destination.id,
+        category: destination.category,
+      });
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : t.grabGpsFailed);
+    } finally {
+      setBookingGrabId('');
+    }
   };
 
   const loadExpertRoute = async (poi: PoiResult) => {
@@ -1239,6 +1312,17 @@ export default function UrbanAgentPage() {
                         )}
                       </div>
                       <div className="flex shrink-0 gap-1">
+                        {openedSavedItineraryId && (
+                          <button
+                            onClick={() => handleBookGrab(item.poi)}
+                            disabled={item.poi.hasCoordinates === false || !isFiniteCoord(item.poi.lat, item.poi.lon) || bookingGrabId === item.poi.id}
+                            className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-600"
+                            aria-label={t.bookGrab}
+                          >
+                            {bookingGrabId === item.poi.id ? <Loader2 className="animate-spin" size={16} /> : <Car size={16} />}
+                            <span className="hidden sm:inline">{bookingGrabId === item.poi.id ? t.bookingGrab : t.bookGrab}</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => loadExpertRoute(item.poi)}
                           className="rounded-lg p-2 text-cyan-200 hover:bg-slate-800"
@@ -1774,8 +1858,8 @@ function RouteMapModal({
 
                 {!!selectedRoute.esValidation?.warnings?.length && (
                   <div className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-3">
-                    <h3 className="mb-2 font-semibold text-amber-100">{text.risks}</h3>
-                    <div className="space-y-2 text-sm text-amber-50">
+                    <h3 className="mb-2 font-semibold text-amber-900">{text.risks}</h3>
+                    <div className="space-y-2 text-sm text-amber-950">
                       {selectedRoute.esValidation.warnings.map((warning, index) => (
                         <p key={`${warning.message}-${index}`}>{warning.message || JSON.stringify(warning)}</p>
                       ))}
