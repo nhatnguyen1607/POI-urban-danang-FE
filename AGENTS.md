@@ -79,3 +79,52 @@ At the end of every frontend implementation batch:
 3. Update the backend master worklog and current state.
 4. Capture unresolved visual or functional problems.
 5. Stop and wait for approval.
+
+## External POI And Attribution Guardrails
+
+The frontend must consume UrbanAgent backend API contracts.
+
+The frontend must not call Google Places, Tripadvisor, Foursquare, Overture,
+Wanderlog, or another external POI provider directly unless a separate
+architecture and licensing decision explicitly approves it.
+
+Do not assume that all POI fields are owned by UrbanAgent.
+
+Do not remove required provider attribution.
+
+Do not expose:
+
+- provider credentials,
+- raw provider payloads,
+- internal source-record identifiers unless public-safe,
+- internal repository mode,
+- SQL or database details,
+- entity-resolution evidence,
+- restricted review or photo data.
+
+Unknown data must remain visibly unknown.
+
+Frontend code must not convert:
+
+- null rating to zero,
+- null review count to zero,
+- unknown district to an empty display claim,
+- unknown route distance to zero,
+- unknown opening hours to open,
+- stale information to verified information.
+
+The frontend should display:
+
+- source-safe attribution where required,
+- warning states,
+- freshness states,
+- recommendation reasons,
+- uncertainty,
+- partial-route information.
+
+The backend `URBANAGENT_CODEX_CONTEXT.md` is canonical.
+
+The shared multi-source context section in the frontend context must remain
+equivalent to the backend version.
+
+Mobile product implementation remains out of scope until separately approved.
