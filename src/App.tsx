@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import DashboardPage from './pages/dashboard/DashboardPage';
 import ModelMetricsPage from './pages/analytics/ModelMetricsPage';
 import TSNEClusterPage from './pages/analytics/TSNEClusterPage';
+import DemoTripPlannerPage from './pages/demo/DemoTripPlannerPage';
 import UrbanAgentPage from './pages/urban-agent/UrbanAgentPage';
 import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 import { AuthProvider } from './auth/AuthContext';
@@ -69,6 +70,7 @@ function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="/chon-vai-tro" element={<RoleSelectionPage />} />
+            <Route path="/demo" element={<DemoTripPlannerPage />} />
 
             <Route element={<RequireRole roles={['customer']} />}>
               <Route path="/" element={<Layout />}>
