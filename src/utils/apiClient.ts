@@ -5,13 +5,15 @@
 import { getFirebaseIdToken } from '../services/firebase';
 
 const getApiUrl = () => {
-  const apiUrl = import.meta.env.VITE_API_URL;
+  const apiUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL;
   if (!apiUrl) {
-    console.warn('VITE_API_URL not configured, using localhost:3000');
+    console.warn('VITE_API_BASE_URL/VITE_API_URL not configured, using localhost:7860');
     return 'http://localhost:7860';
   }
   return apiUrl;
 };
+
+export const getApiBaseUrl = getApiUrl;
 
 const mergeHeaders = async (...headersList: Array<HeadersInit | undefined>) => {
   const merged = new Headers();

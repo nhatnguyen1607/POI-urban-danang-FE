@@ -19,6 +19,8 @@ import { AuthContext, type AppRole, type AuthContextValue } from './authContextV
 const roleKey = (uid: string) => `danang-urban-agent-role:${uid}`;
 const localAdminKey = 'danang-local-admin-session';
 const localAdminTokenKey = 'danang-local-admin-token';
+const demoSessionKey = 'danang-urban-agent-demo-session';
+const demoAuthMode = import.meta.env.VITE_DEMO_AUTH_MODE === 'true';
 
 function createLocalAdminUser() {
   return {
@@ -42,8 +44,34 @@ function createLocalAdminUser() {
   } as User;
 }
 
+function createDemoUser() {
+  return {
+    uid: 'demo-traveler',
+    email: 'demo@urbanagent.local',
+    displayName: 'UrbanAgent Demo',
+    photoURL: null,
+    phoneNumber: null,
+    providerId: 'local-demo',
+    emailVerified: true,
+    isAnonymous: false,
+    metadata: {},
+    providerData: [],
+    refreshToken: '',
+    tenantId: null,
+    delete: async () => undefined,
+    getIdToken: async () => 'urbanagent-demo-local-token',
+    getIdTokenResult: async () => ({ token: 'urbanagent-demo-local-token' }) as Awaited<ReturnType<User['getIdTokenResult']>>,
+    reload: async () => undefined,
+    toJSON: () => ({ uid: 'demo-traveler', email: 'demo@urbanagent.local', displayName: 'UrbanAgent Demo' }),
+  } as User;
+}
+
 function hasLocalAdminSession() {
   return localStorage.getItem(localAdminKey) === 'true';
+}
+
+function hasDemoSession() {
+  return demoAuthMode && sessionStorage.getItem(demoSessionKey) === 'true';
 }
 
 function setLocalAdminSession(enabled: boolean) {
@@ -104,6 +132,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authError, setAuthError] = useState('');
 
   useEffect(() => {
+    if (hasDemoSession()) {
+      setUser(createDemoUser());
+      setRole('customer');
+      setLoading(false);
+      return undefined;
+    }
     if (hasLocalAdminSession()) {
       setUser(createLocalAdminUser());
       setRole('admin');
@@ -124,6 +158,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuthError(toVietnameseAuthError(error));
       });
     return onAuthStateChanged(auth, (nextUser) => {
+      if (hasDemoSession()) {
+        setUser(createDemoUser());
+        setRole('customer');
+        setLoading(false);
+        return;
+      }
       if (hasLocalAdminSession()) {
         setUser(createLocalAdminUser());
         setRole('admin');
@@ -188,6 +228,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return result.user;
         });
       },
+      signInWithDemo: async () => {
+        if (!demoAuthMode) throw new Error('Demo auth mode is disabled.');
+        const demoUser = createDemoUser();
+        sessionStorage.setItem(demoSessionKey, 'true');
+        localStorage.setItem(roleKey(demoUser.uid), 'customer');
+        setUser(demoUser);
+        setRole('customer');
+        setAuthError('');
+        return demoUser;
+      },
       signInWithAdmin: async (username: string, password: string) => {
         setAuthError('');
         if (username !== 'admin' || password !== 'admin123') {
@@ -224,6 +274,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
       },
       signOut: async () => {
+        const wasDemo = hasDemoSession();
+        sessionStorage.removeItem(demoSessionKey);
+        if (wasDemo) {
+          setUser(null);
+          setRole(null);
+          return;
+        }
         const wasLocalAdmin = hasLocalAdminSession();
         setLocalAdminSession(false);
         if (wasLocalAdmin) {
