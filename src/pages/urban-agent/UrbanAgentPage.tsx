@@ -30,6 +30,7 @@ import { apiClient } from '../../utils/apiClient';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { useAuth } from '../../auth/useAuth';
 import { incrementPoiCounter } from '../../services/poiExperienceService';
+import { TripPreviewDayMap } from './TripPreviewDayMap';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -243,6 +244,14 @@ interface SavedItinerary {
 }
 
 const DA_NANG_CENTER = { lat: 16.0544, lon: 108.2022 };
+const TRAVEL_INTERESTS = [
+  'cafe yên tĩnh',
+  'ẩm thực địa phương',
+  'gần biển',
+  'điểm chụp ảnh',
+  'văn hóa - bảo tàng',
+  'phù hợp gia đình',
+];
 const ROUTE_REROUTE_DISTANCE_M = 35;
 const ROUTE_REROUTE_MIN_INTERVAL_MS = 12000;
 const ROUTE_MAX_GPS_ACCURACY_M = 100;
@@ -418,7 +427,7 @@ function poiFromV2(input: unknown, fallbackIndex = 0): PoiResult {
     hasCoordinates: Boolean(location.hasCoordinates ?? (Number.isFinite(lat) && Number.isFinite(lon))),
     rating: Number(normalizedRating.value ?? poi.rating) || undefined,
     score: Math.round(score <= 1 ? score * 100 : score),
-    reason: stringValue(source.reason) || stringValue(poi.reason) || 'Gợi ý từ Traveler API v2.',
+    reason: stringValue(source.reason) || stringValue(poi.reason) || 'Phù hợp với nhu cầu chuyến đi.',
     warnings: Array.isArray(source.warnings) ? source.warnings.map(String) : [],
     actions: Number.isFinite(lat) && Number.isFinite(lon)
       ? [
@@ -757,6 +766,7 @@ export default function UrbanAgentPage() {
   const [recommendationLoading, setRecommendationLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [selectedPreviewDay, setSelectedPreviewDay] = useState(1);
+  const [selectedPreviewStopId, setSelectedPreviewStopId] = useState('');
   const [loading, setLoading] = useState(false);
   const [routeLoadingId, setRouteLoadingId] = useState('');
   const [error, setError] = useState('');
@@ -989,6 +999,28 @@ export default function UrbanAgentPage() {
     setExcludePoiIds((items) => items.filter((id) => id !== poiId));
   };
 
+  const tripConstraintLabel = (poiId: string) => {
+    const recommendation = travelerRecommendations.find((item, index) => poiFromV2(item, index).id === poiId);
+    if (!recommendation) return poiId;
+    return poiFromV2(recommendation).title;
+  };
+
+  const toggleInterest = (interest: string) => {
+    setQuery((current) => {
+      const terms = current.split(',').map((item) => item.trim()).filter(Boolean);
+      if (terms.some((item) => item.toLocaleLowerCase('vi-VN') === interest.toLocaleLowerCase('vi-VN'))) {
+        return terms.filter((item) => item.toLocaleLowerCase('vi-VN') !== interest.toLocaleLowerCase('vi-VN')).join(', ');
+      }
+      return [...terms, interest].join(', ');
+    });
+  };
+
+  const selectPreviewDay = (dayNumber: number, preview = tripPreview) => {
+    setSelectedPreviewDay(dayNumber);
+    const firstStop = preview?.stops.find((stop) => stop.dayNumber === dayNumber);
+    setSelectedPreviewStopId(firstStop?.stopId || '');
+  };
+
   const loadTravelerRecommendations = async () => {
     if (travelerValidationError) {
       setError(travelerValidationError);
@@ -1008,7 +1040,7 @@ export default function UrbanAgentPage() {
       setTravelerRequestId(response?.meta?.requestId || '');
       setPoiResults(recommendations.map((item: TravelerRecommendationV2, index: number) => poiFromV2(item, index)));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không gọi được Traveler API v2.');
+      setError(caught instanceof Error ? caught.message : 'Chưa lấy được gợi ý điểm đến. Vui lòng thử lại.');
     } finally {
       setRecommendationLoading(false);
     }
@@ -1045,7 +1077,7 @@ export default function UrbanAgentPage() {
     try {
       const response = await apiClient.post('/api/v2/trips/preview', tripRequestBody());
       const preview = response?.data?.trip as TripPreviewResponse | undefined;
-      if (!preview) throw new Error('Trip preview response is empty.');
+      if (!preview) throw new Error('Chưa tạo được lịch trình từ phản hồi máy chủ.');
       setTripPreview(preview);
       setTravelerRequestId(response?.meta?.requestId || '');
       const nextItinerary = preview.stops.map((stop, index) => {
@@ -1076,7 +1108,9 @@ export default function UrbanAgentPage() {
         warnings: (preview.warnings || []).map((warning) => warning.code),
       });
       setPoiResults(preview.stops.map((stop, index) => poiFromV2({ poi: stop.poi, reason: stop.reason }, index)));
-      setSelectedPreviewDay(preview.days[0]?.dayNumber || 1);
+      const firstDay = preview.days[0]?.dayNumber || 1;
+      setSelectedPreviewDay(firstDay);
+      setSelectedPreviewStopId(preview.stops.find((stop) => stop.dayNumber === firstDay)?.stopId || '');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không tạo được trip preview.');
     } finally {
@@ -1539,21 +1573,43 @@ export default function UrbanAgentPage() {
       <section className="grid gap-6 xl:grid-cols-[420px_1fr]">
         <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
           <div className="mb-4 flex items-start gap-3">
-            <div className="rounded-xl bg-cyan-400/10 p-3 text-cyan-300">
+            <div className="rounded-xl bg-[#0B3B60]/10 p-3 text-[#0B3B60]">
               <Compass />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-white">{roleCopy[role].title}</h2>
-              <p className="text-sm leading-6 text-slate-400">{roleCopy[role].subtitle}</p>
+              <h2 className="text-xl font-semibold text-white">Lên lịch trình Đà Nẵng</h2>
+              <p className="text-sm leading-6 text-slate-400">
+                Chọn ngày đi, thời gian rảnh và sở thích; UrbanAgent sẽ gợi ý điểm phù hợp rồi xếp thành lịch trình có thể theo được.
+              </p>
             </div>
           </div>
 
-          <label className="mb-2 block text-sm font-medium text-slate-300">{t.prompt}</label>
+          <label className="mb-2 block text-sm font-medium text-slate-300">Bạn muốn chuyến đi như thế nào?</label>
           <textarea
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            placeholder="Ví dụ: cafe yên tĩnh gần biển, món địa phương, một vài điểm chụp ảnh nhẹ nhàng"
             className="min-h-[150px] w-full resize-none rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
           />
+          <div className="mt-3 flex flex-wrap gap-2">
+            {TRAVEL_INTERESTS.map((interest) => {
+              const selected = query.toLocaleLowerCase('vi-VN').includes(interest.toLocaleLowerCase('vi-VN'));
+              return (
+                <button
+                  key={interest}
+                  type="button"
+                  onClick={() => toggleInterest(interest)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    selected
+                      ? 'border-[#E76F51] bg-[#E76F51]/15 text-[#FFD8CC]'
+                      : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-cyan-300 hover:text-cyan-100'
+                  }`}
+                >
+                  {interest}
+                </button>
+              );
+            })}
+          </div>
 
           {role === 'traveler' && (
             <div className="mt-4 space-y-4">
@@ -1587,9 +1643,17 @@ export default function UrbanAgentPage() {
               <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
                 <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-cyan-100">
                   <CalendarDays size={17} />
-                  Trip preview API v2
+                  Thông tin chuyến đi
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-400">Điểm đến</span>
+                    <input
+                      value="Đà Nẵng"
+                      readOnly
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300 outline-none"
+                    />
+                  </label>
                   <label className="block">
                     <span className="mb-1 block text-xs font-medium text-slate-400">Ngày bắt đầu</span>
                     <input
@@ -1630,19 +1694,19 @@ export default function UrbanAgentPage() {
                     />
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-slate-400">Pace</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-400">Nhịp đi</span>
                     <select
                       value={pace}
                       onChange={(event) => setPace(event.target.value)}
                       className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
                     >
-                      <option value="relaxed">Relaxed</option>
-                      <option value="balanced">Balanced</option>
-                      <option value="packed">Packed</option>
+                      <option value="relaxed">Thong thả</option>
+                      <option value="balanced">Cân bằng</option>
+                      <option value="packed">Đi nhiều điểm</option>
                     </select>
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-slate-400">Stop/ngày</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-400">Số điểm tối đa mỗi ngày</span>
                     <select
                       value={maxStopsPerDay}
                       onChange={(event) => setMaxStopsPerDay(Number(event.target.value))}
@@ -1655,11 +1719,12 @@ export default function UrbanAgentPage() {
                   </label>
                 </div>
                 <div className="mt-3 space-y-2">
+                  <div className="text-xs font-semibold text-cyan-100">Thời gian rảnh theo ngày</div>
                   {tripCalendarDays.map((window) => (
                     <div key={window.dayNumber} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 sm:grid-cols-[1fr_92px_92px] sm:items-center">
                       <div className="min-w-0 text-xs text-slate-300">
-                        <span className="font-semibold text-white">Ngày {window.dayNumber}</span>
-                        <span className="ml-2 text-slate-400">{formatVietnameseDate(window.date)}</span>
+                        <span className="font-semibold text-white">{formatVietnameseDate(window.date)}</span>
+                        <span className="ml-2 text-slate-400">Ngày {window.dayNumber}</span>
                       </div>
                       <input
                         type="time"
@@ -1700,46 +1765,48 @@ export default function UrbanAgentPage() {
                     type="button"
                     onClick={createTripPreview}
                     disabled={previewLoading || Boolean(travelerValidationError)}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#E76F51] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#d85f44] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {previewLoading ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
-                    Tạo lịch trình preview
+                    Tạo lịch trình
                   </button>
                 </div>
               </div>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-300">{t.multimodalSearch}</label>
-                <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <label className="flex min-h-[92px] cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-700 bg-slate-900 p-3 text-sm text-slate-400 transition hover:border-cyan-400 hover:bg-slate-800">
-                    {imagePreview ? (
-                      <img src={imagePreview} alt="Preview" className="h-16 w-16 rounded-lg object-cover" />
-                    ) : (
-                      <span className="rounded-xl bg-slate-800 p-3 text-cyan-200">
-                        <UploadCloud size={22} />
+              <details className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
+                <summary className="cursor-pointer font-semibold text-slate-100">Công cụ tìm thêm nâng cao</summary>
+                <div className="mt-4 space-y-3">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-300">{t.multimodalSearch}</label>
+                    <label className="flex min-h-[92px] cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-700 bg-slate-950 p-3 text-sm text-slate-400 transition hover:border-cyan-400 hover:bg-slate-800">
+                      {imagePreview ? (
+                        <img src={imagePreview} alt="Preview" className="h-16 w-16 rounded-lg object-cover" />
+                      ) : (
+                        <span className="rounded-xl bg-slate-800 p-3 text-cyan-200">
+                          <UploadCloud size={22} />
+                        </span>
+                      )}
+                      <span>
+                        <span className="block font-medium text-slate-200">
+                          {imagePreview ? t.changeImage : t.chooseImage}
+                        </span>
+                        <span>{t.imageHint}</span>
                       </span>
-                    )}
-                    <span>
-                      <span className="block font-medium text-slate-200">
-                        {imagePreview ? t.changeImage : t.chooseImage}
-                      </span>
-                      <span>{t.imageHint}</span>
-                    </span>
-                    <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
-                  </label>
+                      <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+                    </label>
+                  </div>
+                  <select
+                    value={modelVersion}
+                    onChange={(event) => setModelVersion(event.target.value)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                  >
+                    <option value="v4">Tìm kiếm đa phương thức tốt nhất</option>
+                    <option value="v3">Tìm kiếm văn bản + ngữ cảnh</option>
+                    <option value="v2">Tìm kiếm cơ bản</option>
+                    <option value="v1">Tìm kiếm legacy</option>
+                  </select>
                 </div>
-              </div>
-
-              <select
-                value={modelVersion}
-                onChange={(event) => setModelVersion(event.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
-              >
-                <option value="v4">Version 4 - multimodal recommended</option>
-                <option value="v3">Version 3</option>
-                <option value="v2">Version 2</option>
-                <option value="v1">Version 1</option>
-              </select>
+              </details>
             </div>
           )}
 
@@ -1749,7 +1816,7 @@ export default function UrbanAgentPage() {
             className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-3 font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
-            {t.run}
+            Tìm thêm điểm phù hợp
           </button>
 
           {error && (
@@ -1792,16 +1859,16 @@ export default function UrbanAgentPage() {
             <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-100">
+                  <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#2A9D8F]/30 bg-[#2A9D8F]/10 px-3 py-1 text-xs font-semibold text-[#BFEDE6]">
                     <CheckCircle2 size={14} />
-                    Traveler API v2
+                    UrbanAgent Travel
                   </div>
-                  <h2 className="text-xl font-semibold text-white">Trip preview theo ngày</h2>
+                  <h2 className="text-xl font-semibold text-white">Lịch trình gợi ý</h2>
                   <p className="text-sm text-slate-400">
-                    CSV runtime mặc định, không lưu trip, không gọi dữ liệu ngoài. Map dùng đường nối minh họa khi chưa có route geometry.
+                    Xem lịch theo từng ngày, chọn điểm trên timeline hoặc bản đồ để tập trung vào cùng một stop.
                   </p>
                 </div>
-                {travelerRequestId && <span className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-400">request {travelerRequestId}</span>}
+                {travelerRequestId && <span className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-400">Mã yêu cầu {travelerRequestId}</span>}
               </div>
 
               {!tripPreview && travelerRecommendations.length > 0 && (
@@ -1817,11 +1884,17 @@ export default function UrbanAgentPage() {
                             <h3 className="font-semibold text-white">{poi.title}</h3>
                             <p className="text-xs text-slate-400">{poi.category}</p>
                           </div>
-                          <span className="rounded-full bg-cyan-400/10 px-2 py-1 text-xs font-semibold text-cyan-200">
-                            #{index + 1}
+                          <span className="rounded-full bg-[#F4EDE2] px-2 py-1 text-xs font-semibold text-[#0B3B60]">
+                            Gợi ý {index + 1}
                           </span>
                         </div>
                         <p className="mt-2 text-sm leading-5 text-slate-300">{item.reason}</p>
+                        {Boolean(item.reasonCodes?.length) && (
+                          <details className="mt-2 text-xs text-slate-400">
+                            <summary className="cursor-pointer">Xem tín hiệu phù hợp</summary>
+                            <p className="mt-1 text-cyan-200">{item.reasonCodes?.join(', ')}</p>
+                          </details>
+                        )}
                         <div className="mt-3 flex flex-wrap gap-2">
                           <button
                             type="button"
@@ -1834,7 +1907,7 @@ export default function UrbanAgentPage() {
                             }`}
                           >
                             <Plus size={13} />
-                            {isIncluded ? 'Đã ưu tiên' : 'Ưu tiên'}
+                            {isIncluded ? 'Đã thêm' : 'Thêm vào lịch'}
                           </button>
                           <button
                             type="button"
@@ -1865,7 +1938,7 @@ export default function UrbanAgentPage() {
                       onClick={() => removeTripConstraintPoi(poiId)}
                       className="inline-flex items-center gap-1 rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 font-semibold text-emerald-100"
                     >
-                      Ưu tiên {poiId}
+                      Thêm {tripConstraintLabel(poiId)}
                       <X size={12} />
                     </button>
                   ))}
@@ -1876,7 +1949,7 @@ export default function UrbanAgentPage() {
                       onClick={() => removeTripConstraintPoi(poiId)}
                       className="inline-flex items-center gap-1 rounded-full border border-rose-300/30 bg-rose-300/10 px-3 py-1 font-semibold text-rose-100"
                     >
-                      Loại {poiId}
+                      Loại {tripConstraintLabel(poiId)}
                       <X size={12} />
                     </button>
                   ))}
@@ -1907,15 +1980,15 @@ export default function UrbanAgentPage() {
                       <button
                         key={day.dayNumber}
                         type="button"
-                        onClick={() => setSelectedPreviewDay(day.dayNumber)}
+                        onClick={() => selectPreviewDay(day.dayNumber)}
                         className={`shrink-0 rounded-xl border px-3 py-2 text-left text-xs transition ${
                           selectedPreviewDay === day.dayNumber
                             ? 'border-cyan-300 bg-cyan-300/10 text-cyan-100'
                             : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-600'
                         }`}
                       >
-                        <span className="block font-semibold">Ngày {day.dayNumber}</span>
-                        <span>{formatVietnameseDate(day.date || addDaysIso(tripStartDate, day.dayNumber - 1))}</span>
+                        <span className="block font-semibold">{formatVietnameseDate(day.date || addDaysIso(tripStartDate, day.dayNumber - 1))}</span>
+                        <span>Ngày {day.dayNumber}</span>
                       </button>
                     ))}
                   </div>
@@ -1928,7 +2001,7 @@ export default function UrbanAgentPage() {
                         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                           <div>
                             <h3 className="text-lg font-semibold text-white">
-                              Ngày {day.dayNumber} - {formatVietnameseDate(day.date || addDaysIso(tripStartDate, day.dayNumber - 1))}
+                              {formatVietnameseDate(day.date || addDaysIso(tripStartDate, day.dayNumber - 1))}
                             </h3>
                             <p className="text-sm text-slate-400">
                               {day.dailyWindow ? `${day.dailyWindow.start} - ${day.dailyWindow.end}` : 'Khung giờ chưa biết'} · {day.feasibilityStatus}
@@ -1941,58 +2014,82 @@ export default function UrbanAgentPage() {
                             className="inline-flex items-center justify-center gap-2 rounded-xl border border-purple-300/40 bg-purple-300/10 px-4 py-2 text-sm font-semibold text-purple-100 transition hover:bg-purple-300/20 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <Route size={16} />
-                            Xem ngày này trên bản đồ
+                            Mở bản đồ lớn
                           </button>
                         </div>
-                        <div className="space-y-3">
-                          {dayStops.map((stop) => {
-                            const poi = poiFromV2({ poi: stop.poi, reason: stop.reason }, stop.order - 1);
-                            const leg = stop.travelFromPrevious;
-                            const travelKnown = leg?.distanceKnown !== false && leg?.travelTimeKnown !== false;
-                            return (
-                              <div key={stop.stopId} className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-cyan-400 text-sm font-bold text-slate-950">
-                                        {stop.order}
-                                      </span>
-                                      <h4 className="font-semibold text-white">{poi.title}</h4>
+                        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+                          <div className="space-y-3">
+                            {dayStops.length === 0 && <EmptyState text="Ngày này chưa có điểm dừng phù hợp." />}
+                            {dayStops.map((stop) => {
+                              const poi = poiFromV2({ poi: stop.poi, reason: stop.reason }, stop.order - 1);
+                              const leg = stop.travelFromPrevious;
+                              const travelKnown = leg?.distanceKnown !== false && leg?.travelTimeKnown !== false;
+                              const selected = selectedPreviewStopId === stop.stopId;
+                              return (
+                                <button
+                                  key={stop.stopId}
+                                  type="button"
+                                  onClick={() => setSelectedPreviewStopId(stop.stopId)}
+                                  className={`w-full rounded-xl border p-4 text-left transition ${
+                                    selected
+                                      ? 'border-[#E76F51] bg-[#E76F51]/10'
+                                      : 'border-slate-800 bg-slate-950/70 hover:border-slate-600'
+                                  }`}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${
+                                          selected ? 'bg-[#E76F51] text-white' : 'bg-cyan-400 text-slate-950'
+                                        }`}
+                                        >
+                                          {stop.order}
+                                        </span>
+                                        <h4 className="font-semibold text-white">{poi.title}</h4>
+                                      </div>
+                                      <p className="mt-1 text-xs text-slate-400">{poi.category}</p>
                                     </div>
-                                    <p className="mt-1 text-xs text-slate-400">{poi.category}</p>
+                                    <span className="rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-300">
+                                      {stop.arrivalTime || '--'} - {stop.departureTime || '--'}
+                                    </span>
                                   </div>
-                                  <span className="rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-300">
-                                    {stop.arrivalTime || '--'} - {stop.departureTime || '--'}
-                                  </span>
-                                </div>
-                                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
-                                  <Badge icon={<Clock3 size={14} />}>{stop.durationMinutes} phút dừng</Badge>
-                                  <Badge icon={<Car size={14} />}>
-                                    {travelKnown && typeof (leg?.travelDurationMinutes ?? leg?.estimatedMinutes) === 'number'
-                                      ? `${leg?.travelDurationMinutes ?? leg?.estimatedMinutes} phút`
-                                      : 'di chuyển chưa rõ'}
-                                  </Badge>
-                                  <Badge icon={<Map size={14} />}>
-                                    {travelKnown && typeof leg?.distanceKm === 'number' ? `${leg.distanceKm} km` : 'khoảng cách chưa rõ'}
-                                  </Badge>
-                                </div>
-                                <p className="mt-3 text-sm leading-6 text-slate-300">{stop.reason || poi.reason}</p>
-                                {Boolean(stop.reasonCodes?.length) && (
-                                  <p className="mt-2 text-xs text-cyan-200">{stop.reasonCodes?.join(', ')}</p>
-                                )}
-                                {Boolean(stop.warnings?.length) && (
-                                  <p className="mt-2 text-xs text-amber-200">{stop.warnings?.join(', ')}</p>
-                                )}
-                              </div>
-                            );
-                          })}
+                                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
+                                    <Badge icon={<Clock3 size={14} />}>{stop.durationMinutes} phút tham quan</Badge>
+                                    <Badge icon={<Car size={14} />}>
+                                      {travelKnown && typeof (leg?.travelDurationMinutes ?? leg?.estimatedMinutes) === 'number'
+                                        ? `${leg?.travelDurationMinutes ?? leg?.estimatedMinutes} phút di chuyển`
+                                        : 'di chuyển chưa rõ'}
+                                    </Badge>
+                                    <Badge icon={<Map size={14} />}>
+                                      {travelKnown && typeof leg?.distanceKm === 'number' ? `${leg.distanceKm} km` : 'khoảng cách chưa rõ'}
+                                    </Badge>
+                                  </div>
+                                  <p className="mt-3 text-sm leading-6 text-slate-300">{stop.reason || poi.reason}</p>
+                                  {Boolean(stop.reasonCodes?.length) && (
+                                    <details className="mt-2 text-xs text-slate-400">
+                                      <summary className="cursor-pointer">Tín hiệu phù hợp</summary>
+                                      <p className="mt-1 text-cyan-200">{stop.reasonCodes?.join(', ')}</p>
+                                    </details>
+                                  )}
+                                  {Boolean(stop.warnings?.length) && (
+                                    <p className="mt-2 text-xs text-amber-200">{stop.warnings?.join(', ')}</p>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <TripPreviewDayMap
+                            dayStops={dayStops}
+                            selectedStopId={selectedPreviewStopId}
+                            onSelectStop={setSelectedPreviewStopId}
+                          />
                         </div>
                       </div>
                     );
                   })}
                 </div>
               ) : (
-                <EmptyState text="Tạo trip preview để xem lịch trình nhóm theo ngày." />
+                <EmptyState text="Chọn ngày đi và tạo lịch trình để xem kế hoạch theo từng ngày." />
               )}
             </div>
 
