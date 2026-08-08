@@ -749,6 +749,8 @@ export default function UrbanAgentPage() {
   const [tripDayWindows, setTripDayWindows] = useState<TripDayWindow[]>(() => createTripDayWindows(2, '09:00', '20:00'));
   const [pace, setPace] = useState('balanced');
   const [maxStopsPerDay, setMaxStopsPerDay] = useState(3);
+  const [mustIncludePoiIds, setMustIncludePoiIds] = useState<string[]>([]);
+  const [excludePoiIds, setExcludePoiIds] = useState<string[]>([]);
   const [travelerRecommendations, setTravelerRecommendations] = useState<TravelerRecommendationV2[]>([]);
   const [tripPreview, setTripPreview] = useState<TripPreviewResponse | null>(null);
   const [travelerRequestId, setTravelerRequestId] = useState('');
@@ -962,13 +964,30 @@ export default function UrbanAgentPage() {
     },
     constraints: {
       maxStopsPerDay,
-      mustIncludePoiIds: [],
-      excludePoiIds: [],
+      mustIncludePoiIds,
+      excludePoiIds,
     },
     recommendationOptions: {
       limit: Math.min(12, tripDayCount * maxStopsPerDay + 3),
     },
   });
+
+  const addMustIncludePoi = (poiId: string) => {
+    if (!poiId) return;
+    setExcludePoiIds((items) => items.filter((id) => id !== poiId));
+    setMustIncludePoiIds((items) => (items.includes(poiId) ? items : [...items, poiId]));
+  };
+
+  const addExcludedPoi = (poiId: string) => {
+    if (!poiId) return;
+    setMustIncludePoiIds((items) => items.filter((id) => id !== poiId));
+    setExcludePoiIds((items) => (items.includes(poiId) ? items : [...items, poiId]));
+  };
+
+  const removeTripConstraintPoi = (poiId: string) => {
+    setMustIncludePoiIds((items) => items.filter((id) => id !== poiId));
+    setExcludePoiIds((items) => items.filter((id) => id !== poiId));
+  };
 
   const loadTravelerRecommendations = async () => {
     if (travelerValidationError) {
@@ -1789,6 +1808,8 @@ export default function UrbanAgentPage() {
                 <div className="mb-4 grid gap-3 md:grid-cols-2">
                   {travelerRecommendations.slice(0, 4).map((item, index) => {
                     const poi = poiFromV2(item, index);
+                    const isIncluded = mustIncludePoiIds.includes(poi.id);
+                    const isExcluded = excludePoiIds.includes(poi.id);
                     return (
                       <div key={poi.id} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
                         <div className="flex items-start justify-between gap-3">
@@ -1801,9 +1822,64 @@ export default function UrbanAgentPage() {
                           </span>
                         </div>
                         <p className="mt-2 text-sm leading-5 text-slate-300">{item.reason}</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => addMustIncludePoi(poi.id)}
+                            disabled={isIncluded}
+                            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
+                              isIncluded
+                                ? 'border-emerald-300/40 bg-emerald-300/10 text-emerald-100'
+                                : 'border-slate-700 text-slate-200 hover:border-emerald-300 hover:text-emerald-100'
+                            }`}
+                          >
+                            <Plus size={13} />
+                            {isIncluded ? 'Đã ưu tiên' : 'Ưu tiên'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => addExcludedPoi(poi.id)}
+                            disabled={isExcluded}
+                            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
+                              isExcluded
+                                ? 'border-rose-300/40 bg-rose-300/10 text-rose-100'
+                                : 'border-slate-700 text-slate-200 hover:border-rose-300 hover:text-rose-100'
+                            }`}
+                          >
+                            <X size={13} />
+                            {isExcluded ? 'Đã loại' : 'Loại khỏi lịch'}
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {(mustIncludePoiIds.length > 0 || excludePoiIds.length > 0) && (
+                <div className="mb-4 flex flex-wrap gap-2 text-xs">
+                  {mustIncludePoiIds.map((poiId) => (
+                    <button
+                      key={`include-${poiId}`}
+                      type="button"
+                      onClick={() => removeTripConstraintPoi(poiId)}
+                      className="inline-flex items-center gap-1 rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 font-semibold text-emerald-100"
+                    >
+                      Ưu tiên {poiId}
+                      <X size={12} />
+                    </button>
+                  ))}
+                  {excludePoiIds.map((poiId) => (
+                    <button
+                      key={`exclude-${poiId}`}
+                      type="button"
+                      onClick={() => removeTripConstraintPoi(poiId)}
+                      className="inline-flex items-center gap-1 rounded-full border border-rose-300/30 bg-rose-300/10 px-3 py-1 font-semibold text-rose-100"
+                    >
+                      Loại {poiId}
+                      <X size={12} />
+                    </button>
+                  ))}
                 </div>
               )}
 
@@ -1817,7 +1893,7 @@ export default function UrbanAgentPage() {
                       {tripPreview.stops.length} stops
                     </span>
                     <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">
-                      {tripPreview.routeSummary?.totalTravelMinutes ?? '--'} phút di chuyển
+                      Thời gian di chuyển ước tính: {tripPreview.routeSummary?.totalTravelMinutes ?? '--'} phút
                     </span>
                     {(tripPreview.warnings || []).slice(0, 3).map((warning) => (
                       <span key={warning.code} className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-amber-100">
