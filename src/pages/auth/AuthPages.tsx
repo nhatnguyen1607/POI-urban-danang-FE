@@ -20,7 +20,17 @@ const roleDestinations: Record<AppRole, string> = {
 };
 
 export function LoginPage() {
-  const { user, role, loading, firebaseReady, authError, signInWithGoogle, signInWithEmail, registerWithEmail } = useAuth();
+  const {
+    user,
+    role,
+    loading,
+    firebaseReady,
+    authError,
+    signInWithGoogle,
+    signInWithEmail,
+    signInWithDemo,
+    registerWithEmail,
+  } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -30,6 +40,7 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState('');
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+  const demoAuthMode = import.meta.env.VITE_DEMO_AUTH_MODE === 'true';
 
   if (loading) return <AuthLoading />;
   if (user && role) return <Navigate to={from || roleDestinations[role]} replace />;
@@ -65,6 +76,19 @@ export function LoginPage() {
     }
   };
 
+  const enterDemo = async () => {
+    setSubmitting(true);
+    setLocalError('');
+    try {
+      await signInWithDemo();
+      navigate('/urban-agent', { replace: true });
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'Khong the vao ban demo.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <AuthShell
       badge="Danang UrbanAgent"
@@ -92,6 +116,17 @@ export function LoginPage() {
           {submitting && <Loader2 className="animate-spin" size={18} />}
           {mode === 'login' ? 'Đăng nhập' : 'Tạo tài khoản'}
         </button>
+        {demoAuthMode && (
+          <button
+            type="button"
+            onClick={enterDemo}
+            disabled={submitting}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 font-semibold text-cyan-800 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <UserRound size={18} />
+            Vào bản demo
+          </button>
+        )}
         <button
           type="button"
           onClick={signInGoogle}

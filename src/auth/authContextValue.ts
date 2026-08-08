@@ -11,6 +11,7 @@ export interface AuthContextValue {
   authError: string;
   signInWithGoogle: () => Promise<User>;
   signInWithEmail: (email: string, password: string) => Promise<User>;
+  signInWithDemo: () => Promise<User>;
   signInWithAdmin: (username: string, password: string) => Promise<User>;
   registerWithEmail: (email: string, password: string) => Promise<User>;
   setUserRole: (role: AppRole) => void;

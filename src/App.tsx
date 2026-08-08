@@ -100,6 +100,7 @@ function App() {
             </Route>
 
             <Route path="/ai-site-selection" element={<Navigate to="/seller" replace />} />
+            <Route path="/demo" element={<Navigate to="/urban-agent" replace />} />
             <Route path="/model-metrics" element={<Navigate to="/admin/model-metrics" replace />} />
             <Route path="/tsne-cluster" element={<Navigate to="/admin/tsne-cluster" replace />} />
             <Route path="*" element={<RoleRedirect />} />

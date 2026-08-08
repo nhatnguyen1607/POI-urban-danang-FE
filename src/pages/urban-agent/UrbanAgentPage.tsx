@@ -1,12 +1,16 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
+  CalendarDays,
   Car,
   CheckCircle2,
+  Clock3,
   CloudSun,
   Compass,
   Loader2,
   Map,
   MapPin,
+  Play,
   Plus,
   Route,
   Save,
@@ -56,13 +60,84 @@ interface PoiResult {
 interface ItineraryItem {
   order: number;
   poi: PoiResult;
+  dayNumber?: number;
+  arrivalTime?: string | null;
+  departureTime?: string | null;
   suggestedStayMinutes?: number;
   travelFromPrevious?: {
-    distanceKm: number;
-    estimatedMinutes: number;
+    distanceKm: number | null;
+    estimatedMinutes: number | null;
     transport: string;
+    distanceKnown?: boolean;
+    travelTimeKnown?: boolean;
+    source?: string;
   };
   reason: string;
+}
+
+interface TravelerRecommendationV2 {
+  poi: unknown;
+  score: number;
+  reason: string;
+  reasonCodes?: string[];
+  warnings?: string[];
+}
+
+interface TripPreviewStop {
+  stopId: string;
+  order: number;
+  dayNumber: number;
+  poi: unknown;
+  arrivalTime: string | null;
+  departureTime: string | null;
+  durationMinutes: number;
+  travelFromPrevious?: {
+    distanceKm?: number | null;
+    travelDurationMinutes?: number | null;
+    estimatedMinutes?: number | null;
+    distanceKnown?: boolean;
+    travelTimeKnown?: boolean;
+    calculationSource?: string;
+    source?: string;
+  };
+  reason?: string;
+  reasonCodes?: string[];
+  warnings?: string[];
+}
+
+interface TripPreviewDay {
+  dayNumber: number;
+  date?: string | null;
+  dailyWindow?: { start: string; end: string } | null;
+  feasibilityStatus: string;
+  stops?: string[];
+  stopCount?: number;
+  warnings?: { code: string; message?: string; scope?: string }[];
+  unscheduled?: { poiId?: string | null; reasonCode: string; message: string }[];
+}
+
+interface TripPreviewResponse {
+  feasibilityStatus: string;
+  dayCount: number;
+  dailyWindow?: { start: string; end: string } | null;
+  days: TripPreviewDay[];
+  stops: TripPreviewStop[];
+  warnings?: { code: string; message?: string; scope?: string }[];
+  unscheduled?: { poiId?: string | null; reasonCode: string; message: string }[];
+  routeSummary?: {
+    totalDistanceKm?: number | null;
+    totalTravelMinutes?: number | null;
+    totalStayMinutes?: number | null;
+    totalPlanMinutes?: number | null;
+    status?: string;
+  };
+  provenance?: { source?: string; externalLiveDataUsed?: boolean };
+}
+
+interface TripDayWindow {
+  dayNumber: number;
+  startTime: string;
+  endTime: string;
 }
 
 interface BusinessArea {
@@ -115,6 +190,8 @@ interface RouteResult {
   distance: number;
   duration: number;
   steps: { instruction?: string; instructions?: string }[];
+  calculationSource?: string;
+  illustrative?: boolean;
   esValidation: {
     valid: boolean;
     warnings: { message?: string; law?: string; severity?: string; location?: { lat: number; lng: number } }[];
@@ -202,6 +279,55 @@ const warningIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
+function todayIso() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDaysIso(dateText: string, dayOffset: number) {
+  const [year, month, day] = dateText.split('-').map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return '';
+  const date = new Date(Date.UTC(year, month - 1, day + dayOffset));
+  const yyyy = String(date.getUTCFullYear());
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function formatVietnameseDate(dateText?: string | null) {
+  if (!dateText) return '';
+  const [year, month, day] = dateText.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(date.getTime())) return dateText;
+  return new Intl.DateTimeFormat('vi-VN', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    timeZone: 'Asia/Ho_Chi_Minh',
+  }).format(date);
+}
+
+function minutesOf(value: string) {
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+function createTripDayWindows(dayCount: number, startTime: string, endTime: string, current: TripDayWindow[] = []) {
+  return Array.from({ length: dayCount }, (_, index) => {
+    const dayNumber = index + 1;
+    const existing = current.find((item) => item.dayNumber === dayNumber);
+    return {
+      dayNumber,
+      startTime: existing?.startTime || startTime,
+      endTime: existing?.endTime || endTime,
+    };
+  });
+}
+
 function FitBounds({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
   const map = useMap();
   useEffect(() => {
@@ -257,6 +383,81 @@ function normalizeRouteResult(input: any): RouteResult | null {
       ruleTrace: Array.isArray(input?.esValidation?.ruleTrace) ? input.esValidation.ruleTrace : [],
       fuzzyInsights: Array.isArray(input?.esValidation?.fuzzyInsights) ? input.esValidation.fuzzyInsights : [],
       totalRulesChecked: Number(input?.esValidation?.totalRulesChecked) || 0,
+    },
+  };
+}
+
+function valueRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {};
+}
+
+function stringValue(value: unknown) {
+  return typeof value === 'string' ? value : '';
+}
+
+function poiFromV2(input: unknown, fallbackIndex = 0): PoiResult {
+  const source = valueRecord(input);
+  const poi = valueRecord(source.poi || input);
+  const location = valueRecord(poi.location);
+  const address = valueRecord(poi.address);
+  const rating = valueRecord(poi.rating);
+  const normalizedRating = valueRecord(rating.normalized);
+  const lat = Number(location.lat ?? poi.lat);
+  const lon = Number(location.lon ?? poi.lon ?? poi.lng);
+  const id = String(poi.globalId || poi.id || `v2-poi-${fallbackIndex}`);
+  const score = Number(source.score || poi.score || 0);
+  return {
+    id,
+    title: stringValue(poi.name) || stringValue(poi.title) || `POI ${fallbackIndex + 1}`,
+    name: stringValue(poi.name) || stringValue(poi.title) || `POI ${fallbackIndex + 1}`,
+    address: stringValue(address.current) || stringValue(address.raw) || stringValue(poi.address) || stringValue(poi.addressRaw),
+    category: stringValue(poi.category) || stringValue(poi.categoryNormalized) || 'place',
+    district: stringValue(address.district) || stringValue(poi.district) || 'Đà Nẵng',
+    lat: Number.isFinite(lat) ? lat : DA_NANG_CENTER.lat,
+    lon: Number.isFinite(lon) ? lon : DA_NANG_CENTER.lon,
+    hasCoordinates: Boolean(location.hasCoordinates ?? (Number.isFinite(lat) && Number.isFinite(lon))),
+    rating: Number(normalizedRating.value ?? poi.rating) || undefined,
+    score: Math.round(score <= 1 ? score * 100 : score),
+    reason: stringValue(source.reason) || stringValue(poi.reason) || 'Gợi ý từ Traveler API v2.',
+    warnings: Array.isArray(source.warnings) ? source.warnings.map(String) : [],
+    actions: Number.isFinite(lat) && Number.isFinite(lon)
+      ? [
+          {
+            type: 'map',
+            label: 'Google Maps',
+            url: `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`,
+          },
+        ]
+      : [],
+  };
+}
+
+function buildIllustrativeRoute(stops: PoiResult[]): RouteResult | null {
+  const validStops = stops.filter((poi) => isFiniteCoord(poi.lat, poi.lon));
+  if (validStops.length < 2) return null;
+  const coordinates = validStops.map((poi) => [poi.lon, poi.lat]);
+  const distanceMeters = validStops.slice(1).reduce((sum, stop, index) => {
+    const previous = validStops[index];
+    return sum + haversineMeters(previous, stop);
+  }, 0);
+  return {
+    route: { coordinates },
+    distance: distanceMeters,
+    duration: Math.round((distanceMeters / 1000 / 20) * 3600),
+    steps: [{ instruction: 'Đường nối minh họa giữa các điểm dừng; không phải chỉ đường theo đường bộ.' }],
+    calculationSource: 'trip-preview-illustrative-polyline',
+    illustrative: true,
+    esValidation: {
+      valid: true,
+      warnings: [
+        {
+          message: 'Polyline minh họa nối các điểm theo tọa độ stop, không phải route đường bộ chính xác.',
+          severity: 'info',
+        },
+      ],
+      ruleTrace: [],
+      fuzzyInsights: [],
+      totalRulesChecked: 0,
     },
   };
 }
@@ -541,6 +742,19 @@ export default function UrbanAgentPage() {
   const [query, setQuery] = useState(t.travelerSample);
   const [transport, setTransport] = useState('motorbike');
   const [tripDurationMinutes, setTripDurationMinutes] = useState(240);
+  const [tripStartDate, setTripStartDate] = useState(todayIso);
+  const [tripDayCount, setTripDayCount] = useState(2);
+  const [defaultStartTime, setDefaultStartTime] = useState('09:00');
+  const [defaultEndTime, setDefaultEndTime] = useState('20:00');
+  const [tripDayWindows, setTripDayWindows] = useState<TripDayWindow[]>(() => createTripDayWindows(2, '09:00', '20:00'));
+  const [pace, setPace] = useState('balanced');
+  const [maxStopsPerDay, setMaxStopsPerDay] = useState(3);
+  const [travelerRecommendations, setTravelerRecommendations] = useState<TravelerRecommendationV2[]>([]);
+  const [tripPreview, setTripPreview] = useState<TripPreviewResponse | null>(null);
+  const [travelerRequestId, setTravelerRequestId] = useState('');
+  const [recommendationLoading, setRecommendationLoading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [selectedPreviewDay, setSelectedPreviewDay] = useState(1);
   const [loading, setLoading] = useState(false);
   const [routeLoadingId, setRouteLoadingId] = useState('');
   const [error, setError] = useState('');
@@ -585,6 +799,10 @@ export default function UrbanAgentPage() {
     setSavedRouteSummary(null);
     setOpenedSavedItineraryId('');
   }, [role, roleCopy]);
+
+  useEffect(() => {
+    setTripDayWindows((current) => createTripDayWindows(tripDayCount, defaultStartTime, defaultEndTime, current));
+  }, [defaultEndTime, defaultStartTime, tripDayCount]);
 
   useEffect(() => {
     let mounted = true;
@@ -692,6 +910,160 @@ export default function UrbanAgentPage() {
         },
       ],
     }));
+
+  const tripCalendarDays = useMemo(
+    () => tripDayWindows.map((window) => ({
+      ...window,
+      date: tripStartDate ? addDaysIso(tripStartDate, window.dayNumber - 1) : '',
+    })),
+    [tripDayWindows, tripStartDate],
+  );
+
+  const activeDayWindowOverrides = useMemo(
+    () => tripDayWindows
+      .filter((window) => window.startTime !== defaultStartTime || window.endTime !== defaultEndTime)
+      .map((window) => ({
+        dayNumber: window.dayNumber,
+        startTime: window.startTime,
+        endTime: window.endTime,
+      })),
+    [defaultEndTime, defaultStartTime, tripDayWindows],
+  );
+
+  const travelerValidationError = useMemo(() => {
+    if (!query.trim()) return language === 'vi' ? 'Nhập nhu cầu chuyến đi trước.' : 'Enter trip preferences first.';
+    if (!tripStartDate) return language === 'vi' ? 'Chọn ngày bắt đầu chuyến đi trước.' : 'Select the trip start date first.';
+    if (minutesOf(defaultEndTime) <= minutesOf(defaultStartTime)) {
+      return language === 'vi' ? 'Giờ kết thúc mặc định phải sau giờ bắt đầu.' : 'Default end time must be after start time.';
+    }
+    const invalid = tripDayWindows.find((window) => minutesOf(window.endTime) <= minutesOf(window.startTime));
+    if (invalid) {
+      return language === 'vi'
+        ? `Ngày ${invalid.dayNumber} có giờ kết thúc không hợp lệ.`
+        : `Day ${invalid.dayNumber} has an invalid end time.`;
+    }
+    return '';
+  }, [defaultEndTime, defaultStartTime, language, query, tripDayWindows, tripStartDate]);
+
+  const tripRequestBody = () => ({
+    cityId: 'da-nang',
+    query: query.trim(),
+    trip: {
+      date: tripStartDate,
+      dayCount: tripDayCount,
+      dailyWindow: {
+        startTime: defaultStartTime,
+        endTime: defaultEndTime,
+      },
+      dayWindows: activeDayWindowOverrides,
+      transport,
+      pace,
+      budget: 'unknown',
+    },
+    constraints: {
+      maxStopsPerDay,
+      mustIncludePoiIds: [],
+      excludePoiIds: [],
+    },
+    recommendationOptions: {
+      limit: Math.min(12, tripDayCount * maxStopsPerDay + 3),
+    },
+  });
+
+  const loadTravelerRecommendations = async () => {
+    if (travelerValidationError) {
+      setError(travelerValidationError);
+      return;
+    }
+    setRecommendationLoading(true);
+    setError('');
+    try {
+      const response = await apiClient.post('/api/v2/recommendations', {
+        cityId: 'da-nang',
+        query: query.trim(),
+        limit: 6,
+        context: {},
+      });
+      const recommendations = response?.data?.recommendations || [];
+      setTravelerRecommendations(recommendations);
+      setTravelerRequestId(response?.meta?.requestId || '');
+      setPoiResults(recommendations.map((item: TravelerRecommendationV2, index: number) => poiFromV2(item, index)));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Không gọi được Traveler API v2.');
+    } finally {
+      setRecommendationLoading(false);
+    }
+  };
+
+  const openPreviewDayMap = (dayNumber: number, preview = tripPreview) => {
+    if (!preview) return;
+    const stops = preview.stops
+      .filter((stop) => stop.dayNumber === dayNumber)
+      .map((stop, index) => poiFromV2({ poi: stop.poi, reason: stop.reason }, index))
+      .filter((poi) => poi.hasCoordinates !== false && isFiniteCoord(poi.lat, poi.lon));
+    if (!stops.length) {
+      setError(language === 'vi' ? 'Ngày này chưa có điểm có tọa độ để hiển thị.' : 'This day has no stops with coordinates.');
+      return;
+    }
+    const illustrativeRoute = buildIllustrativeRoute(stops);
+    setSelectedPreviewDay(dayNumber);
+    setSelectedRoutePoi(null);
+    setRouteStops(stops);
+    setRouteRoutes(illustrativeRoute ? [illustrativeRoute] : []);
+    setSelectedRouteIndex(0);
+    setRouteOrigin([stops[0].lat, stops[0].lon]);
+    setRouteBounds(L.latLngBounds(stops.map((poi) => [poi.lat, poi.lon] as [number, number])));
+    setRouteModalOpen(true);
+  };
+
+  const createTripPreview = async () => {
+    if (travelerValidationError) {
+      setError(travelerValidationError);
+      return;
+    }
+    setPreviewLoading(true);
+    setError('');
+    try {
+      const response = await apiClient.post('/api/v2/trips/preview', tripRequestBody());
+      const preview = response?.data?.trip as TripPreviewResponse | undefined;
+      if (!preview) throw new Error('Trip preview response is empty.');
+      setTripPreview(preview);
+      setTravelerRequestId(response?.meta?.requestId || '');
+      const nextItinerary = preview.stops.map((stop, index) => {
+        const poi = poiFromV2({ poi: stop.poi, reason: stop.reason }, index);
+        const leg = stop.travelFromPrevious || {};
+        return {
+          order: index + 1,
+          dayNumber: stop.dayNumber,
+          arrivalTime: stop.arrivalTime,
+          departureTime: stop.departureTime,
+          poi,
+          suggestedStayMinutes: stop.durationMinutes,
+          travelFromPrevious: {
+            distanceKm: leg.distanceKm ?? null,
+            estimatedMinutes: leg.travelDurationMinutes ?? leg.estimatedMinutes ?? null,
+            transport,
+            distanceKnown: leg.distanceKnown,
+            travelTimeKnown: leg.travelTimeKnown,
+            source: leg.calculationSource || leg.source,
+          },
+          reason: stop.reason || poi.reason,
+        };
+      });
+      setItinerary(nextItinerary);
+      setSavedRouteSummary({
+        totalDistanceKm: preview.routeSummary?.totalDistanceKm ?? undefined,
+        totalDurationMinutes: preview.routeSummary?.totalTravelMinutes ?? undefined,
+        warnings: (preview.warnings || []).map((warning) => warning.code),
+      });
+      setPoiResults(preview.stops.map((stop, index) => poiFromV2({ poi: stop.poi, reason: stop.reason }, index)));
+      setSelectedPreviewDay(preview.days[0]?.dayNumber || 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Không tạo được trip preview.');
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
 
   const runAgent = async () => {
     setLoading(true);
@@ -1044,7 +1416,8 @@ export default function UrbanAgentPage() {
   };
 
   useEffect(() => {
-    if (!routeModalOpen || !navigator.geolocation || !routeStops.length) {
+    const hasIllustrativeRoute = routeRoutes.some((route) => route.illustrative);
+    if (!routeModalOpen || !navigator.geolocation || !routeStops.length || hasIllustrativeRoute) {
       if (routeWatchIdRef.current !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(routeWatchIdRef.current);
       }
@@ -1118,7 +1491,7 @@ export default function UrbanAgentPage() {
       routeWatchIdRef.current = null;
       rerouteInFlightRef.current = false;
     };
-  }, [routeModalOpen, routeStops, selectedRoutePoi]);
+  }, [routeModalOpen, routeRoutes, routeStops, selectedRoutePoi]);
 
   const itineraryMoveMinutes = itinerary.reduce((sum, item) => sum + (item.travelFromPrevious?.estimatedMinutes || 0), 0);
   const totalMoveMinutes = itineraryMoveMinutes || Number(savedRouteSummary?.totalDurationMinutes || 0);
@@ -1190,6 +1563,130 @@ export default function UrbanAgentPage() {
                   <option value={240}>{t.hours4}</option>
                   <option value={360}>{t.hours6}</option>
                 </select>
+              </div>
+
+              <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-cyan-100">
+                  <CalendarDays size={17} />
+                  Trip preview API v2
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-400">Ngày bắt đầu</span>
+                    <input
+                      type="date"
+                      value={tripStartDate}
+                      onChange={(event) => setTripStartDate(event.target.value)}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-400">Số ngày</span>
+                    <select
+                      value={tripDayCount}
+                      onChange={(event) => setTripDayCount(Number(event.target.value))}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7].map((value) => (
+                        <option key={value} value={value}>{value} ngày</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-400">Giờ bắt đầu mặc định</span>
+                    <input
+                      type="time"
+                      value={defaultStartTime}
+                      onChange={(event) => setDefaultStartTime(event.target.value)}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-400">Giờ kết thúc mặc định</span>
+                    <input
+                      type="time"
+                      value={defaultEndTime}
+                      onChange={(event) => setDefaultEndTime(event.target.value)}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-400">Pace</span>
+                    <select
+                      value={pace}
+                      onChange={(event) => setPace(event.target.value)}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                    >
+                      <option value="relaxed">Relaxed</option>
+                      <option value="balanced">Balanced</option>
+                      <option value="packed">Packed</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-400">Stop/ngày</span>
+                    <select
+                      value={maxStopsPerDay}
+                      onChange={(event) => setMaxStopsPerDay(Number(event.target.value))}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                    >
+                      {[1, 2, 3, 4, 5, 6].map((value) => (
+                        <option key={value} value={value}>{value}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {tripCalendarDays.map((window) => (
+                    <div key={window.dayNumber} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 sm:grid-cols-[1fr_92px_92px] sm:items-center">
+                      <div className="min-w-0 text-xs text-slate-300">
+                        <span className="font-semibold text-white">Ngày {window.dayNumber}</span>
+                        <span className="ml-2 text-slate-400">{formatVietnameseDate(window.date)}</span>
+                      </div>
+                      <input
+                        type="time"
+                        value={window.startTime}
+                        onChange={(event) => setTripDayWindows((items) => items.map((item) => (
+                          item.dayNumber === window.dayNumber ? { ...item, startTime: event.target.value } : item
+                        )))}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs text-slate-100 outline-none focus:border-cyan-400"
+                      />
+                      <input
+                        type="time"
+                        value={window.endTime}
+                        onChange={(event) => setTripDayWindows((items) => items.map((item) => (
+                          item.dayNumber === window.dayNumber ? { ...item, endTime: event.target.value } : item
+                        )))}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs text-slate-100 outline-none focus:border-cyan-400"
+                      />
+                    </div>
+                  ))}
+                </div>
+                {travelerValidationError && (
+                  <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
+                    <AlertTriangle className="mt-0.5 shrink-0" size={15} />
+                    {travelerValidationError}
+                  </div>
+                )}
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={loadTravelerRecommendations}
+                    disabled={recommendationLoading || Boolean(travelerValidationError)}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {recommendationLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
+                    Gợi ý điểm
+                  </button>
+                  <button
+                    type="button"
+                    onClick={createTripPreview}
+                    disabled={previewLoading || Boolean(travelerValidationError)}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-400 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {previewLoading ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
+                    Tạo lịch trình preview
+                  </button>
+                </div>
               </div>
 
               <div>
@@ -1276,6 +1773,156 @@ export default function UrbanAgentPage() {
             <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
+                  <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-100">
+                    <CheckCircle2 size={14} />
+                    Traveler API v2
+                  </div>
+                  <h2 className="text-xl font-semibold text-white">Trip preview theo ngày</h2>
+                  <p className="text-sm text-slate-400">
+                    CSV runtime mặc định, không lưu trip, không gọi dữ liệu ngoài. Map dùng đường nối minh họa khi chưa có route geometry.
+                  </p>
+                </div>
+                {travelerRequestId && <span className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-400">request {travelerRequestId}</span>}
+              </div>
+
+              {!tripPreview && travelerRecommendations.length > 0 && (
+                <div className="mb-4 grid gap-3 md:grid-cols-2">
+                  {travelerRecommendations.slice(0, 4).map((item, index) => {
+                    const poi = poiFromV2(item, index);
+                    return (
+                      <div key={poi.id} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="font-semibold text-white">{poi.title}</h3>
+                            <p className="text-xs text-slate-400">{poi.category}</p>
+                          </div>
+                          <span className="rounded-full bg-cyan-400/10 px-2 py-1 text-xs font-semibold text-cyan-200">
+                            #{index + 1}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm leading-5 text-slate-300">{item.reason}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {tripPreview ? (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 font-semibold text-emerald-100">
+                      {tripPreview.feasibilityStatus}
+                    </span>
+                    <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">
+                      {tripPreview.stops.length} stops
+                    </span>
+                    <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">
+                      {tripPreview.routeSummary?.totalTravelMinutes ?? '--'} phút di chuyển
+                    </span>
+                    {(tripPreview.warnings || []).slice(0, 3).map((warning) => (
+                      <span key={warning.code} className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-amber-100">
+                        {warning.code}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {tripPreview.days.map((day) => (
+                      <button
+                        key={day.dayNumber}
+                        type="button"
+                        onClick={() => setSelectedPreviewDay(day.dayNumber)}
+                        className={`shrink-0 rounded-xl border px-3 py-2 text-left text-xs transition ${
+                          selectedPreviewDay === day.dayNumber
+                            ? 'border-cyan-300 bg-cyan-300/10 text-cyan-100'
+                            : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-600'
+                        }`}
+                      >
+                        <span className="block font-semibold">Ngày {day.dayNumber}</span>
+                        <span>{formatVietnameseDate(day.date || addDaysIso(tripStartDate, day.dayNumber - 1))}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {tripPreview.days.map((day) => {
+                    if (day.dayNumber !== selectedPreviewDay) return null;
+                    const dayStops = tripPreview.stops.filter((stop) => stop.dayNumber === day.dayNumber);
+                    return (
+                      <div key={day.dayNumber} className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+                        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <h3 className="text-lg font-semibold text-white">
+                              Ngày {day.dayNumber} - {formatVietnameseDate(day.date || addDaysIso(tripStartDate, day.dayNumber - 1))}
+                            </h3>
+                            <p className="text-sm text-slate-400">
+                              {day.dailyWindow ? `${day.dailyWindow.start} - ${day.dailyWindow.end}` : 'Khung giờ chưa biết'} · {day.feasibilityStatus}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openPreviewDayMap(day.dayNumber)}
+                            disabled={!dayStops.length}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-purple-300/40 bg-purple-300/10 px-4 py-2 text-sm font-semibold text-purple-100 transition hover:bg-purple-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Route size={16} />
+                            Xem ngày này trên bản đồ
+                          </button>
+                        </div>
+                        <div className="space-y-3">
+                          {dayStops.map((stop) => {
+                            const poi = poiFromV2({ poi: stop.poi, reason: stop.reason }, stop.order - 1);
+                            const leg = stop.travelFromPrevious;
+                            const travelKnown = leg?.distanceKnown !== false && leg?.travelTimeKnown !== false;
+                            return (
+                              <div key={stop.stopId} className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-cyan-400 text-sm font-bold text-slate-950">
+                                        {stop.order}
+                                      </span>
+                                      <h4 className="font-semibold text-white">{poi.title}</h4>
+                                    </div>
+                                    <p className="mt-1 text-xs text-slate-400">{poi.category}</p>
+                                  </div>
+                                  <span className="rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-300">
+                                    {stop.arrivalTime || '--'} - {stop.departureTime || '--'}
+                                  </span>
+                                </div>
+                                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
+                                  <Badge icon={<Clock3 size={14} />}>{stop.durationMinutes} phút dừng</Badge>
+                                  <Badge icon={<Car size={14} />}>
+                                    {travelKnown && typeof (leg?.travelDurationMinutes ?? leg?.estimatedMinutes) === 'number'
+                                      ? `${leg?.travelDurationMinutes ?? leg?.estimatedMinutes} phút`
+                                      : 'di chuyển chưa rõ'}
+                                  </Badge>
+                                  <Badge icon={<Map size={14} />}>
+                                    {travelKnown && typeof leg?.distanceKm === 'number' ? `${leg.distanceKm} km` : 'khoảng cách chưa rõ'}
+                                  </Badge>
+                                </div>
+                                <p className="mt-3 text-sm leading-6 text-slate-300">{stop.reason || poi.reason}</p>
+                                {Boolean(stop.reasonCodes?.length) && (
+                                  <p className="mt-2 text-xs text-cyan-200">{stop.reasonCodes?.join(', ')}</p>
+                                )}
+                                {Boolean(stop.warnings?.length) && (
+                                  <p className="mt-2 text-xs text-amber-200">{stop.warnings?.join(', ')}</p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyState text="Tạo trip preview để xem lịch trình nhóm theo ngày." />
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
                   <h2 className="text-xl font-semibold text-white">{t.itinerary}</h2>
                   <span className="text-sm text-slate-400">{t.editable}</span>
                 </div>
@@ -1320,10 +1967,14 @@ export default function UrbanAgentPage() {
                         {item.travelFromPrevious && (
                           <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
                             <Badge icon={<Car size={14} />}>
-                              {item.travelFromPrevious.estimatedMinutes} {t.minutes}
+                              {typeof item.travelFromPrevious.estimatedMinutes === 'number'
+                                ? `${item.travelFromPrevious.estimatedMinutes} ${t.minutes}`
+                                : language === 'vi' ? 'di chuyển chưa rõ' : 'unknown travel'}
                             </Badge>
                             <Badge icon={<Map size={14} />}>
-                              {item.travelFromPrevious.distanceKm} km
+                              {typeof item.travelFromPrevious.distanceKm === 'number'
+                                ? `${item.travelFromPrevious.distanceKm} km`
+                                : language === 'vi' ? 'khoảng cách chưa rõ' : 'unknown distance'}
                             </Badge>
                           </div>
                         )}
@@ -1745,6 +2396,11 @@ function RouteMapModal({
               {loading && <span className="text-cyan-400">Đang cập nhật route...</span>}
             </div>
             {gpsError && <p className="mt-1 text-xs text-amber-400">{gpsError}</p>}
+            {selectedRoute?.illustrative && (
+              <p className="mt-1 text-xs font-semibold text-amber-300">
+                Đường nối minh họa giữa các điểm dừng; không phải chỉ đường theo đường bộ.
+              </p>
+            )}
           </div>
           <button onClick={onClose} className="rounded-xl bg-slate-800 p-2 text-slate-400 hover:text-white">
             <X size={20} />
