@@ -42,7 +42,7 @@ export const apiClient = {
     if (!response.ok) {
       try {
         const payload = text ? JSON.parse(text) : null;
-        throw new Error(payload?.details || payload?.error || `API Error: ${response.status} ${response.statusText}`);
+        throw new Error(payload?.error?.message || payload?.details || payload?.error || `API Error: ${response.status} ${response.statusText}`);
       } catch (error) {
         if (error instanceof Error && !error.message.startsWith('Unexpected token')) throw error;
         throw new Error(`API Error: ${response.status} ${response.statusText}`);
@@ -68,7 +68,56 @@ export const apiClient = {
     if (!response.ok) {
       try {
         const payload = text ? JSON.parse(text) : null;
-        throw new Error(payload?.details || payload?.error || `API Error: ${response.status} ${response.statusText}`);
+        throw new Error(payload?.error?.message || payload?.details || payload?.error || `API Error: ${response.status} ${response.statusText}`);
+      } catch (error) {
+        if (error instanceof Error && !error.message.startsWith('Unexpected token')) throw error;
+        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+      }
+    }
+    if (!text) {
+      return null;
+    }
+    return JSON.parse(text);
+  },
+
+  patch: async (endpoint: string, body?: unknown, options?: RequestInit) => {
+    const url = `${getApiUrl()}${endpoint}`;
+    const response = await fetch(url, {
+      ...options,
+      method: 'PATCH',
+      headers: await mergeHeaders({ 'Content-Type': 'application/json' }, options?.headers),
+      body: JSON.stringify(body),
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      try {
+        const payload = text ? JSON.parse(text) : null;
+        throw new Error(payload?.details || payload?.error?.message || payload?.error || `API Error: ${response.status} ${response.statusText}`);
+      } catch (error) {
+        if (error instanceof Error && !error.message.startsWith('Unexpected token')) throw error;
+        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+      }
+    }
+    if (!text) {
+      return null;
+    }
+    return JSON.parse(text);
+  },
+
+  delete: async (endpoint: string, options?: RequestInit) => {
+    const url = `${getApiUrl()}${endpoint}`;
+    const response = await fetch(url, {
+      ...options,
+      method: 'DELETE',
+      headers: await mergeHeaders({ 'Content-Type': 'application/json' }, options?.headers),
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      try {
+        const payload = text ? JSON.parse(text) : null;
+        throw new Error(payload?.details || payload?.error?.message || payload?.error || `API Error: ${response.status} ${response.statusText}`);
       } catch (error) {
         if (error instanceof Error && !error.message.startsWith('Unexpected token')) throw error;
         throw new Error(`API Error: ${response.status} ${response.statusText}`);

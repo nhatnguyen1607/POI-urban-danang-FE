@@ -223,11 +223,22 @@ interface AgentTrainingStatus {
 }
 
 interface SavedItinerary {
-  itineraryId: string;
+  tripId: string;
+  title: string;
+  cityId?: string;
   query: string;
-  durationMinutes: number;
+  startDate?: string;
+  dayCount?: number;
+  dailyWindow?: { startTime?: string; endTime?: string; start?: string; end?: string } | null;
+  dayWindows?: TripDayWindow[];
+  pace?: string;
   transport: string;
-  stops: {
+  includedPoiIds?: string[];
+  excludedPoiIds?: string[];
+  request?: unknown;
+  preview?: TripPreviewResponse | null;
+  itinerary?: ItineraryItem[];
+  stops?: {
     poiId: string;
     order: number;
     stayMinutes: number;
@@ -235,11 +246,7 @@ interface SavedItinerary {
     addedBy: 'agent' | 'user';
     poiSnapshot?: Partial<PoiResult>;
   }[];
-  routeSummary?: {
-    totalDistanceKm?: number;
-    totalDurationMinutes?: number;
-    warnings?: string[];
-  };
+  warnings?: unknown[];
   updatedAt?: string;
   createdAt?: string;
 }
@@ -646,12 +653,21 @@ const copy = {
     noExtra: 'Chưa có địa điểm bổ sung không trùng lịch trình.',
     travelerMode: 'Chế độ khách du lịch',
     saveItinerary: 'Lưu lịch trình',
+    saveChanges: 'Lưu thay đổi',
     savedItineraries: 'Lịch trình đã lưu',
+    myTrips: 'Lịch trình của tôi',
     noSavedItineraries: 'Chưa có lịch trình đã lưu.',
     defaultSavedTitle: 'Lịch trình Đà Nẵng',
     savedOpened: 'Đã mở lại lịch trình đã lưu.',
     saveSuccess: 'Đã lưu thành công.',
+    updateSuccess: 'Đã lưu thay đổi.',
     saveFailed: 'Không thể lưu lịch trình.',
+    deleteTrip: 'Xóa',
+    openTrip: 'Mở',
+    dayUnit: 'ngày',
+    deleteTripConfirm: 'Xóa lịch trình đã lưu này?',
+    deleteSuccess: 'Đã xóa lịch trình.',
+    deleteFailed: 'Không thể xóa lịch trình.',
     bookGrab: 'Đặt xe ngay',
     bookingGrab: 'Đang mở Grab...',
     grabNoDestination: 'Lịch trình đã lưu chưa có điểm đến hợp lệ để đặt xe.',
@@ -745,12 +761,21 @@ const copy = {
     noExtra: 'No additional non-duplicate places yet.',
     travelerMode: 'Traveler mode',
     saveItinerary: 'Save itinerary',
+    saveChanges: 'Save changes',
     savedItineraries: 'Saved itineraries',
+    myTrips: 'My trips',
     noSavedItineraries: 'No saved itineraries yet.',
     defaultSavedTitle: 'Danang itinerary',
     savedOpened: 'Saved itinerary reopened.',
     saveSuccess: 'Saved successfully.',
+    updateSuccess: 'Changes saved.',
     saveFailed: 'Could not save itinerary.',
+    deleteTrip: 'Delete',
+    openTrip: 'Open',
+    dayUnit: 'days',
+    deleteTripConfirm: 'Delete this saved trip?',
+    deleteSuccess: 'Trip deleted.',
+    deleteFailed: 'Could not delete trip.',
     bookGrab: 'Book Grab now',
     bookingGrab: 'Opening Grab...',
     grabNoDestination: 'This saved itinerary does not have a valid destination for booking.',
@@ -829,9 +854,15 @@ export default function UrbanAgentPage() {
   const [routeGpsError, setRouteGpsError] = useState('');
   const [trainingStatus, setTrainingStatus] = useState<AgentTrainingStatus | null>(null);
   const [savedItineraries, setSavedItineraries] = useState<SavedItinerary[]>([]);
-  const [savedRouteSummary, setSavedRouteSummary] = useState<SavedItinerary['routeSummary'] | null>(null);
+  const [savedRouteSummary, setSavedRouteSummary] = useState<{
+    totalDistanceKm?: number;
+    totalDurationMinutes?: number;
+    warnings?: string[];
+  } | null>(null);
   const [openedSavedItineraryId, setOpenedSavedItineraryId] = useState('');
   const [savingItinerary, setSavingItinerary] = useState(false);
+  const [savedTripsLoading, setSavedTripsLoading] = useState(false);
+  const [deletingTripId, setDeletingTripId] = useState('');
   const [bookingGrabId, setBookingGrabId] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
   const routeWatchIdRef = useRef<number | null>(null);
@@ -895,18 +926,23 @@ export default function UrbanAgentPage() {
       return;
     }
     let mounted = true;
+    setSavedTripsLoading(true);
     apiClient
-      .get('/api/agent/itineraries')
+      .get('/api/v2/trips')
       .then((data) => {
-        if (mounted) setSavedItineraries(data?.itineraries || []);
+        if (mounted) setSavedItineraries(data?.data?.trips || []);
       })
       .catch(() => {
         if (mounted) setSavedItineraries([]);
+        if (mounted) setSaveMessage(language === 'vi' ? 'Không tải được lịch trình đã lưu.' : 'Could not load saved trips.');
+      })
+      .finally(() => {
+        if (mounted) setSavedTripsLoading(false);
       });
     return () => {
       mounted = false;
     };
-  }, [user]);
+  }, [language, user]);
 
   const requireAuthFor = async (message: string) => {
     if (user) return true;
@@ -1383,8 +1419,30 @@ export default function UrbanAgentPage() {
     void incrementPoiCounter(poi.id, 'timesAddedToItinerary');
   };
 
+  const currentTripPayload = () => ({
+    title: query.trim() || t.defaultSavedTitle,
+    cityId: 'da-nang',
+    query,
+    startDate: tripStartDate,
+    dayCount: tripDayCount,
+    dailyWindow: {
+      startTime: defaultStartTime,
+      endTime: defaultEndTime,
+    },
+    dayWindows: tripDayWindows,
+    pace,
+    transport,
+    includedPoiIds: mustIncludePoiIds,
+    excludedPoiIds: excludePoiIds,
+    request: tripRequestBody(),
+    preview: activeTripPreview,
+    itinerary,
+    warnings: activeTripPreview?.warnings || [],
+    status: 'saved',
+  });
+
   const saveCurrentItinerary = async () => {
-    if (!itinerary.length) return;
+    if (!itinerary.length && !activeTripPreview?.stops.length) return;
     const canSave = await requireAuthFor(
       language === 'vi' ? 'Đăng nhập để lưu lịch trình vào tài khoản của bạn.' : 'Sign in to save this itinerary.',
     );
@@ -1392,24 +1450,18 @@ export default function UrbanAgentPage() {
     setSavingItinerary(true);
     setSaveMessage('');
     try {
-      const result = await apiClient.post('/api/agent/itineraries', {
-        query,
-        durationMinutes: tripDurationMinutes,
-        transport,
-        origin: { ...currentLocation, label: 'Vị trí hiện tại' },
-        itinerary,
-        routeSummary: {
-          totalDurationMinutes: itinerary.reduce((sum, item) => sum + (item.travelFromPrevious?.estimatedMinutes || 0), 0),
-          totalDistanceKm: itinerary.reduce((sum, item) => sum + (item.travelFromPrevious?.distanceKm || 0), 0),
-          warnings: [],
-        },
-        status: 'saved',
-      });
-      if (result?.itinerary) {
-        setSavedItineraries((items) => [result.itinerary, ...items.filter((item) => item.itineraryId !== result.itinerary.itineraryId)]);
-        setOpenedSavedItineraryId(result.itinerary.itineraryId);
+      const payload = currentTripPayload();
+      const result = openedSavedItineraryId
+        ? await apiClient.patch(`/api/v2/trips/${openedSavedItineraryId}`, payload)
+        : await apiClient.post('/api/v2/trips', payload);
+      const savedTrip = result?.data?.trip as SavedItinerary | undefined;
+      if (savedTrip) {
+        setSavedItineraries((items) => [savedTrip, ...items.filter((item) => item.tripId !== savedTrip.tripId)]);
+        setOpenedSavedItineraryId(savedTrip.tripId);
       }
-      setSaveMessage(t.saveSuccess);
+      setTripPreviewDirty(false);
+      setTripEditMessage('');
+      setSaveMessage(openedSavedItineraryId ? t.updateSuccess : t.saveSuccess);
     } catch (error) {
       setSaveMessage(error instanceof Error ? error.message : t.saveFailed);
     } finally {
@@ -1417,12 +1469,42 @@ export default function UrbanAgentPage() {
     }
   };
 
-  const openSavedItinerary = (saved: SavedItinerary) => {
-    setQuery(saved.query || query);
-    setTripDurationMinutes(saved.durationMinutes || tripDurationMinutes);
-    setTransport(saved.transport || transport);
-    setItinerary(
-      (saved.stops || []).map((stop, index) => {
+  const openSavedItinerary = async (saved: SavedItinerary) => {
+    setSaveMessage('');
+    try {
+      const response = await apiClient.get(`/api/v2/trips/${saved.tripId}`);
+      const loaded = (response?.data?.trip || saved) as SavedItinerary;
+      setQuery(loaded.query || query);
+      setTripStartDate(loaded.startDate || tripStartDate);
+      setTripDayCount(loaded.dayCount || tripDayCount);
+      if (loaded.dailyWindow) {
+        setDefaultStartTime(loaded.dailyWindow.startTime || loaded.dailyWindow.start || defaultStartTime);
+        setDefaultEndTime(loaded.dailyWindow.endTime || loaded.dailyWindow.end || defaultEndTime);
+      }
+      if (loaded.dayWindows?.length) setTripDayWindows(loaded.dayWindows);
+      setPace(loaded.pace || pace);
+      setTransport(loaded.transport || transport);
+      setMustIncludePoiIds(loaded.includedPoiIds || []);
+      setExcludePoiIds(loaded.excludedPoiIds || []);
+      if (loaded.preview) {
+        const preview = renumberTripPreview(loaded.preview);
+        setTripPreview(preview);
+        setEditableTripPreview(preview);
+        setItinerary(previewToItinerary(preview));
+        setPoiResults(preview.stops.map((stop, index) => poiFromV2({ poi: stop.poi, reason: stop.reason }, index)));
+        setSelectedPreviewDay(preview.days[0]?.dayNumber || 1);
+        setSelectedPreviewStopId(preview.stops[0]?.stopId || '');
+        setSavedRouteSummary({
+          totalDistanceKm: preview.routeSummary?.totalDistanceKm ?? undefined,
+          totalDurationMinutes: preview.routeSummary?.totalTravelMinutes ?? undefined,
+          warnings: (preview.warnings || []).map((warning) => warning.code),
+        });
+      } else {
+        const fallbackStops = loaded.stops || [];
+        setTripPreview(null);
+        setEditableTripPreview(null);
+        setItinerary(
+          fallbackStops.map((stop, index) => {
         const snapshot = stop.poiSnapshot || {};
         const snapshotLat = Number(snapshot.lat);
         const snapshotLon = Number(snapshot.lon);
@@ -1446,11 +1528,35 @@ export default function UrbanAgentPage() {
           suggestedStayMinutes: stop.stayMinutes,
           reason: stop.reason,
         };
-      }),
-    );
-    setSavedRouteSummary(saved.routeSummary || null);
-    setOpenedSavedItineraryId(saved.itineraryId);
-    setSaveMessage(t.savedOpened);
+          }),
+        );
+        setSavedRouteSummary(null);
+      }
+      setTripPreviewDirty(false);
+      setTripEditMessage('');
+      setOpenedSavedItineraryId(loaded.tripId);
+      setSaveMessage(t.savedOpened);
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : language === 'vi' ? 'Không mở được lịch trình đã lưu.' : 'Could not open saved trip.');
+    }
+  };
+
+  const deleteSavedItinerary = async (saved: SavedItinerary) => {
+    if (!window.confirm(t.deleteTripConfirm)) return;
+    setDeletingTripId(saved.tripId);
+    setSaveMessage('');
+    try {
+      await apiClient.delete(`/api/v2/trips/${saved.tripId}`);
+      setSavedItineraries((items) => items.filter((item) => item.tripId !== saved.tripId));
+      if (openedSavedItineraryId === saved.tripId) {
+        setOpenedSavedItineraryId('');
+      }
+      setSaveMessage(t.deleteSuccess);
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : t.deleteFailed);
+    } finally {
+      setDeletingTripId('');
+    }
   };
 
   const handleBookGrab = async (destination: PoiResult) => {
@@ -2258,7 +2364,7 @@ export default function UrbanAgentPage() {
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:border disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-600"
                   >
                     {savingItinerary ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                    {t.saveItinerary}
+                    {openedSavedItineraryId ? t.saveChanges : t.saveItinerary}
                   </button>
                   <button
                     onClick={loadFullItineraryRoute}
@@ -2338,20 +2444,46 @@ export default function UrbanAgentPage() {
             </div>
 
             <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
-              <h2 className="mb-4 text-xl font-semibold text-white">{t.savedItineraries}</h2>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-xl font-semibold text-white">{t.myTrips}</h2>
+                {savedTripsLoading && <Loader2 className="animate-spin text-cyan-200" size={18} />}
+              </div>
               {savedItineraries.length === 0 && <EmptyState text={t.noSavedItineraries} />}
               <div className="grid gap-3 md:grid-cols-2">
                 {savedItineraries.map((saved) => (
-                  <button
-                    key={saved.itineraryId}
-                    onClick={() => openSavedItinerary(saved)}
-                    className="rounded-xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-cyan-300 hover:bg-cyan-50"
+                  <div
+                    key={saved.tripId}
+                    className="rounded-xl border border-slate-800 bg-slate-900 p-4 transition hover:border-cyan-300"
                   >
-                    <div className="font-semibold text-white">{saved.query || t.defaultSavedTitle}</div>
-                    <div className="mt-2 text-sm text-slate-400">
-                      {saved.stops?.length || 0} {t.stopUnit} · {saved.durationMinutes || '--'} {t.minutes} · {saved.transport || 'motorbike'}
+                    <button
+                      type="button"
+                      onClick={() => openSavedItinerary(saved)}
+                      className="block w-full text-left"
+                    >
+                      <div className="font-semibold text-white">{saved.title || saved.query || t.defaultSavedTitle}</div>
+                      <div className="mt-2 text-sm text-slate-400">
+                        {saved.startDate || '--'} · {saved.dayCount || saved.preview?.dayCount || 1} {t.dayUnit} · {saved.updatedAt ? new Date(saved.updatedAt).toLocaleString(language === 'vi' ? 'vi-VN' : 'en-US') : '--'}
+                      </div>
+                    </button>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openSavedItinerary(saved)}
+                        className="rounded-lg bg-cyan-600 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-700"
+                      >
+                        {t.openTrip}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteSavedItinerary(saved)}
+                        disabled={deletingTripId === saved.tripId}
+                        className="inline-flex items-center gap-1 rounded-lg border border-rose-300/40 px-3 py-2 text-sm font-semibold text-rose-100 hover:bg-rose-300/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {deletingTripId === saved.tripId ? <Loader2 className="animate-spin" size={15} /> : <Trash2 size={15} />}
+                        {t.deleteTrip}
+                      </button>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
