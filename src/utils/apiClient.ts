@@ -4,6 +4,9 @@
 
 import { getFirebaseIdToken } from '../services/firebase';
 
+const demoSessionKey = 'danang-urban-agent-demo-session';
+const demoAuthMode = import.meta.env.VITE_DEMO_AUTH_MODE === 'true';
+
 const getApiUrl = () => {
   const apiUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL;
   if (!apiUrl) {
@@ -24,8 +27,12 @@ const mergeHeaders = async (...headersList: Array<HeadersInit | undefined>) => {
 
   const token = await getFirebaseIdToken();
   const localAdminToken = localStorage.getItem('danang-local-admin-token');
+  const demoToken = demoAuthMode && sessionStorage.getItem(demoSessionKey) === 'true'
+    ? 'urbanagent-demo-local-token'
+    : null;
   if (token) merged.set('Authorization', `Bearer ${token}`);
   if (!token && localAdminToken) merged.set('Authorization', `Bearer ${localAdminToken}`);
+  if (!token && !localAdminToken && demoToken) merged.set('Authorization', `Bearer ${demoToken}`);
 
   return Object.fromEntries(merged.entries());
 };
