@@ -47,8 +47,8 @@ function createLocalAdminUser() {
 function createDemoUser() {
   return {
     uid: 'demo-traveler',
-    email: 'demo@urbanagent.local',
-    displayName: 'UrbanAgent Demo',
+    email: 'dev-traveler@urbanagent.local',
+    displayName: 'Khách phát triển',
     photoURL: null,
     phoneNumber: null,
     providerId: 'local-demo',
@@ -62,7 +62,7 @@ function createDemoUser() {
     getIdToken: async () => 'urbanagent-demo-local-token',
     getIdTokenResult: async () => ({ token: 'urbanagent-demo-local-token' }) as Awaited<ReturnType<User['getIdTokenResult']>>,
     reload: async () => undefined,
-    toJSON: () => ({ uid: 'demo-traveler', email: 'demo@urbanagent.local', displayName: 'UrbanAgent Demo' }),
+    toJSON: () => ({ uid: 'demo-traveler', email: 'dev-traveler@urbanagent.local', displayName: 'Khách phát triển' }),
   } as User;
 }
 
@@ -229,7 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
       },
       signInWithDemo: async () => {
-        if (!demoAuthMode) throw new Error('Demo auth mode is disabled.');
+        if (!demoAuthMode) throw new Error('Chế độ phát triển đang tắt.');
         const demoUser = createDemoUser();
         sessionStorage.setItem(demoSessionKey, 'true');
         localStorage.setItem(roleKey(demoUser.uid), 'customer');
