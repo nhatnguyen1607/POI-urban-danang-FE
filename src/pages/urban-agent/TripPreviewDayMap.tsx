@@ -73,6 +73,21 @@ function PreviewMapBounds({ positions }: { positions: [number, number][] }) {
   return null;
 }
 
+function SelectedStopPan({
+  selectedPosition,
+}: {
+  selectedPosition: [number, number] | null;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!selectedPosition) return;
+    map.setView(selectedPosition, Math.max(map.getZoom(), 14), { animate: true });
+  }, [map, selectedPosition]);
+
+  return null;
+}
+
 export function TripPreviewDayMap({
   dayStops,
   selectedStopId,
@@ -86,6 +101,7 @@ export function TripPreviewDayMap({
     .map((stop, index) => ({ stop, poi: stopPoi(stop, index) }))
     .filter(({ poi }) => poi.hasCoordinates && Number.isFinite(poi.lat) && Number.isFinite(poi.lon));
   const positions = mappedStops.map(({ poi }) => [poi.lat, poi.lon] as [number, number]);
+  const selectedPosition = mappedStops.find(({ stop }) => stop.stopId === selectedStopId);
   const center = positions[0] || ([DA_NANG_CENTER.lat, DA_NANG_CENTER.lon] as [number, number]);
 
   return (
@@ -103,6 +119,7 @@ export function TripPreviewDayMap({
         <div className="h-[420px] min-h-[320px]">
           <MapContainer center={center} zoom={13} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
             <PreviewMapBounds positions={positions} />
+            <SelectedStopPan selectedPosition={selectedPosition ? [selectedPosition.poi.lat, selectedPosition.poi.lon] : null} />
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -110,17 +127,19 @@ export function TripPreviewDayMap({
             {positions.length > 1 && (
               <Polyline positions={positions} pathOptions={{ color: '#0B3B60', weight: 5, opacity: 0.82 }} />
             )}
-            {mappedStops.map(({ stop, poi }) => {
+            {mappedStops.map(({ stop, poi }, index) => {
               const selected = selectedStopId === stop.stopId;
+              const displayOrder = index + 1;
               return (
                 <Marker
                   key={stop.stopId}
                   position={[poi.lat, poi.lon]}
-                  icon={numberedPreviewIcon(stop.order, selected)}
+                  icon={numberedPreviewIcon(displayOrder, selected)}
+                  zIndexOffset={selected ? 1000 : 0}
                   eventHandlers={{ click: () => onSelectStop(stop.stopId) }}
                 >
                   <Popup>
-                    <strong>{stop.order}. {poi.title}</strong>
+                    <strong>{displayOrder}. {poi.title}</strong>
                     <br />
                     {poi.category}
                     <br />

@@ -32,6 +32,7 @@ import { useAuth } from '../../auth/useAuth';
 import { incrementPoiCounter } from '../../services/poiExperienceService';
 import { TripPreviewDayMap } from './TripPreviewDayMap';
 import { TripPreviewStopActions } from './TripPreviewStopActions';
+import { TravelerItineraryViewSwitch, type TravelerItineraryView } from './TravelerItineraryViewSwitch';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -832,6 +833,7 @@ export default function UrbanAgentPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [selectedPreviewDay, setSelectedPreviewDay] = useState(1);
   const [selectedPreviewStopId, setSelectedPreviewStopId] = useState('');
+  const [mobilePreviewView, setMobilePreviewView] = useState<TravelerItineraryView>('timeline');
   const [loading, setLoading] = useState(false);
   const [routeLoadingId, setRouteLoadingId] = useState('');
   const [error, setError] = useState('');
@@ -871,6 +873,7 @@ export default function UrbanAgentPage() {
   const lastReroutePositionRef = useRef<{ lat: number; lng: number } | null>(null);
   const lastRerouteAtRef = useRef(0);
   const rerouteInFlightRef = useRef(false);
+  const previewStopRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     setQuery(roleCopy[role].sample);
@@ -1043,6 +1046,14 @@ export default function UrbanAgentPage() {
     return '';
   }, [defaultEndTime, defaultStartTime, language, query, tripDayWindows, tripStartDate]);
 
+  useEffect(() => {
+    if (!selectedPreviewStopId || mobilePreviewView === 'map') return;
+    previewStopRefs.current[selectedPreviewStopId]?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+    });
+  }, [mobilePreviewView, selectedPreviewStopId]);
+
   const tripRequestBody = () => ({
     cityId: 'da-nang',
     query: query.trim(),
@@ -1091,6 +1102,7 @@ export default function UrbanAgentPage() {
 
   const selectPreviewDay = (dayNumber: number, preview = activeTripPreview) => {
     setSelectedPreviewDay(dayNumber);
+    setMobilePreviewView('timeline');
     const firstStop = preview?.stops
       .filter((stop) => stop.dayNumber === dayNumber)
       .sort((a, b) => a.order - b.order)[0];
@@ -1557,6 +1569,10 @@ export default function UrbanAgentPage() {
 
   const saveCurrentItinerary = async () => {
     if (!itinerary.length && !activeTripPreview?.stops.length) return;
+    if (!user) {
+      setSaveMessage(language === 'vi' ? 'Đăng nhập để lưu lịch trình' : 'Sign in to save this itinerary');
+      return;
+    }
     const canSave = await requireAuthFor(
       language === 'vi' ? 'Đăng nhập để lưu lịch trình vào tài khoản của bạn.' : 'Sign in to save this itinerary.',
     );
@@ -2327,6 +2343,15 @@ export default function UrbanAgentPage() {
                         {warning.code}
                       </span>
                     ))}
+                    <button
+                      type="button"
+                      onClick={saveCurrentItinerary}
+                      disabled={savingItinerary}
+                      className="inline-flex items-center justify-center gap-2 rounded-full border border-cyan-300/40 bg-cyan-300/10 px-3 py-1 font-semibold text-cyan-100 transition hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {savingItinerary ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
+                      {openedSavedItineraryId ? t.saveChanges : t.saveItinerary}
+                    </button>
                   </div>
                   {tripPreviewDirty && (
                     <div className="flex flex-col gap-3 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100 md:flex-row md:items-center md:justify-between">
@@ -2387,8 +2412,9 @@ export default function UrbanAgentPage() {
                             Mở bản đồ lớn
                           </button>
                         </div>
-                        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-                          <div className="space-y-3">
+                        <TravelerItineraryViewSwitch value={mobilePreviewView} onChange={setMobilePreviewView} />
+                        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+                          <div className={`${mobilePreviewView === 'timeline' ? 'block' : 'hidden'} space-y-3 md:block`}>
                             {dayStops.length === 0 && <EmptyState text="Ngày này chưa có điểm dừng phù hợp." />}
                             {dayStops.map((stop, stopIndex) => {
                               const poi = poiFromV2({ poi: stop.poi, reason: stop.reason }, stop.order - 1);
@@ -2398,7 +2424,13 @@ export default function UrbanAgentPage() {
                               return (
                                 <div
                                   key={stop.stopId}
-                                  onClick={() => setSelectedPreviewStopId(stop.stopId)}
+                                  ref={(node) => {
+                                    previewStopRefs.current[stop.stopId] = node;
+                                  }}
+                                  onClick={() => {
+                                    setSelectedPreviewStopId(stop.stopId);
+                                    setMobilePreviewView('timeline');
+                                  }}
                                   className={`trip-preview-stop-card w-full cursor-pointer rounded-xl border p-4 text-left transition ${
                                     selected
                                       ? 'border-[#E76F51] bg-[#E76F51]/10'
@@ -2457,11 +2489,16 @@ export default function UrbanAgentPage() {
                               );
                             })}
                           </div>
-                          <TripPreviewDayMap
-                            dayStops={dayStops}
-                            selectedStopId={selectedPreviewStopId}
-                            onSelectStop={setSelectedPreviewStopId}
-                          />
+                          <div className={`${mobilePreviewView === 'map' ? 'block' : 'hidden'} md:block`}>
+                            <TripPreviewDayMap
+                              dayStops={dayStops}
+                              selectedStopId={selectedPreviewStopId}
+                              onSelectStop={(stopId) => {
+                                setSelectedPreviewStopId(stopId);
+                                setMobilePreviewView('timeline');
+                              }}
+                            />
+                          </div>
                         </div>
                       </div>
                     );
@@ -2481,7 +2518,7 @@ export default function UrbanAgentPage() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={saveCurrentItinerary}
-                    disabled={!itinerary.length || savingItinerary}
+                    disabled={(!itinerary.length && !activeTripPreview?.stops.length) || savingItinerary}
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:border disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-600"
                   >
                     {savingItinerary ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
@@ -2498,8 +2535,17 @@ export default function UrbanAgentPage() {
                 </div>
               </div>
               {saveMessage && (
-                <div className="mb-4 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800">
-                  {saveMessage}
+                <div className="mb-4 flex flex-col gap-3 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800 sm:flex-row sm:items-center sm:justify-between">
+                  <span>{saveMessage}</span>
+                  {!user && saveMessage.toLowerCase().includes(language === 'vi' ? 'đăng nhập' : 'sign in') && firebaseReady && (
+                    <button
+                      type="button"
+                      onClick={() => void signInWithGoogle()}
+                      className="inline-flex items-center justify-center rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-cyan-800"
+                    >
+                      {language === 'vi' ? 'Đăng nhập' : 'Sign in'}
+                    </button>
+                  )}
                 </div>
               )}
               <div className="space-y-3">

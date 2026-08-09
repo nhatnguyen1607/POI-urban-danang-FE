@@ -70,10 +70,13 @@ function App() {
             <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="/chon-vai-tro" element={<RoleSelectionPage />} />
 
+            <Route path="/" element={<Layout />}>
+              <Route path="urban-agent" element={<UrbanAgentPage />} />
+            </Route>
+
             <Route element={<RequireRole roles={['customer']} />}>
               <Route path="/" element={<Layout />}>
                 <Route index element={<DashboardPage />} />
-                <Route path="urban-agent" element={<UrbanAgentPage />} />
                 <Route path="preferences" element={<PreferencesPage />} />
                 <Route path="feedback" element={<FeedbackPage />} />
                 <Route path="text-search" element={<Navigate to="/urban-agent" replace />} />

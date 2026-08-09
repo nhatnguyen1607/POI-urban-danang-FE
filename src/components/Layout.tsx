@@ -32,6 +32,8 @@ const layoutCopy = {
     vietnamese: 'Tiếng Việt',
     english: 'English',
     logout: 'Đăng xuất',
+    login: 'Đăng nhập',
+    guest: 'Chưa đăng nhập',
     nav: {
       sellerAnalytics: 'Phân tích vị trí',
       businessProfile: 'Hồ sơ địa điểm',
@@ -54,6 +56,8 @@ const layoutCopy = {
     vietnamese: 'Vietnamese',
     english: 'English',
     logout: 'Sign out',
+    login: 'Sign in',
+    guest: 'Guest preview',
     nav: {
       sellerAnalytics: 'Location analytics',
       businessProfile: 'Business profile',
@@ -74,6 +78,10 @@ export default function Layout() {
   const navItems = getNavItems(role, language);
 
   const handleSignOut = async () => {
+    if (!user) {
+      navigate('/login', { replace: false });
+      return;
+    }
     await signOut();
     navigate(role === 'admin' ? '/admin/login' : '/login', { replace: true });
   };
@@ -119,7 +127,7 @@ export default function Layout() {
               <UserRound size={16} />
               {copy.account}
             </div>
-            <p className="truncate text-slate-600">{user?.displayName || user?.email}</p>
+            <p className="truncate text-slate-600">{user?.displayName || user?.email || copy.guest}</p>
           </div>
 
           <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -140,7 +148,7 @@ export default function Layout() {
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100"
           >
             <LogOut size={16} />
-            {copy.logout}
+            {user ? copy.logout : copy.login}
           </button>
         </div>
       </aside>
@@ -152,8 +160,8 @@ export default function Layout() {
               <MapPin className="text-cyan-700" size={20} />
               Danang UrbanAgent
             </div>
-            <button onClick={handleSignOut} className="rounded-lg border border-slate-200 p-2 text-slate-600" aria-label={copy.logout}>
-              <LogOut size={18} />
+            <button onClick={handleSignOut} className="rounded-lg border border-slate-200 p-2 text-slate-600" aria-label={user ? copy.logout : copy.login}>
+              {user ? <LogOut size={18} /> : <UserRound size={18} />}
             </button>
           </div>
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
