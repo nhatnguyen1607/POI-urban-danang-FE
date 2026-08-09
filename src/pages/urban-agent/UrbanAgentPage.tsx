@@ -31,6 +31,7 @@ import { useLanguage } from '../../i18n/LanguageContext';
 import { useAuth } from '../../auth/useAuth';
 import { incrementPoiCounter } from '../../services/poiExperienceService';
 import { TripPreviewDayMap } from './TripPreviewDayMap';
+import { TripPreviewStopActions } from './TripPreviewStopActions';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -441,6 +442,41 @@ function poiFromV2(input: unknown, fallbackIndex = 0): PoiResult {
   };
 }
 
+function poiIdFromTripStop(stop: TripPreviewStop, fallbackIndex = 0) {
+  const poi = valueRecord(stop.poi);
+  return String(poi.globalId || poi.id || stop.stopId || `trip-stop-${fallbackIndex}`);
+}
+
+function renumberTripPreview(preview: TripPreviewResponse): TripPreviewResponse {
+  const sortedStops = [...preview.stops].sort((a, b) => (
+    a.dayNumber - b.dayNumber ||
+    a.order - b.order ||
+    a.stopId.localeCompare(b.stopId)
+  ));
+  const renumberedStops = preview.days.flatMap((day) =>
+    sortedStops
+      .filter((stop) => stop.dayNumber === day.dayNumber)
+      .map((stop, index) => ({ ...stop, order: index + 1 })),
+  );
+  const knownDayNumbers = new Set(preview.days.map((day) => day.dayNumber));
+  const extraStops = sortedStops
+    .filter((stop) => !knownDayNumbers.has(stop.dayNumber))
+    .map((stop, index) => ({ ...stop, order: index + 1 }));
+  const stops = [...renumberedStops, ...extraStops];
+  return {
+    ...preview,
+    stops,
+    days: preview.days.map((day) => {
+      const dayStops = stops.filter((stop) => stop.dayNumber === day.dayNumber);
+      return {
+        ...day,
+        stops: dayStops.map((stop) => stop.stopId),
+        stopCount: dayStops.length,
+      };
+    }),
+  };
+}
+
 function buildIllustrativeRoute(stops: PoiResult[]): RouteResult | null {
   const validStops = stops.filter((poi) => isFiniteCoord(poi.lat, poi.lon));
   if (validStops.length < 2) return null;
@@ -762,6 +798,9 @@ export default function UrbanAgentPage() {
   const [excludePoiIds, setExcludePoiIds] = useState<string[]>([]);
   const [travelerRecommendations, setTravelerRecommendations] = useState<TravelerRecommendationV2[]>([]);
   const [tripPreview, setTripPreview] = useState<TripPreviewResponse | null>(null);
+  const [editableTripPreview, setEditableTripPreview] = useState<TripPreviewResponse | null>(null);
+  const [tripPreviewDirty, setTripPreviewDirty] = useState(false);
+  const [tripEditMessage, setTripEditMessage] = useState('');
   const [travelerRequestId, setTravelerRequestId] = useState('');
   const [recommendationLoading, setRecommendationLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -805,6 +844,10 @@ export default function UrbanAgentPage() {
     setError('');
     setPoiResults([]);
     setItinerary([]);
+    setTripPreview(null);
+    setEditableTripPreview(null);
+    setTripPreviewDirty(false);
+    setTripEditMessage('');
     setBusinessAreas([]);
     setRouteModalOpen(false);
     setRouteStops([]);
@@ -942,6 +985,11 @@ export default function UrbanAgentPage() {
     [defaultEndTime, defaultStartTime, tripDayWindows],
   );
 
+  const activeTripPreview = editableTripPreview || tripPreview;
+  const scheduledPoiIds = useMemo(() => new Set(
+    (activeTripPreview?.stops || []).map((stop, index) => poiIdFromTripStop(stop, index)),
+  ), [activeTripPreview]);
+
   const travelerValidationError = useMemo(() => {
     if (!query.trim()) return language === 'vi' ? 'Nhập nhu cầu chuyến đi trước.' : 'Enter trip preferences first.';
     if (!tripStartDate) return language === 'vi' ? 'Chọn ngày bắt đầu chuyến đi trước.' : 'Select the trip start date first.';
@@ -982,18 +1030,6 @@ export default function UrbanAgentPage() {
     },
   });
 
-  const addMustIncludePoi = (poiId: string) => {
-    if (!poiId) return;
-    setExcludePoiIds((items) => items.filter((id) => id !== poiId));
-    setMustIncludePoiIds((items) => (items.includes(poiId) ? items : [...items, poiId]));
-  };
-
-  const addExcludedPoi = (poiId: string) => {
-    if (!poiId) return;
-    setMustIncludePoiIds((items) => items.filter((id) => id !== poiId));
-    setExcludePoiIds((items) => (items.includes(poiId) ? items : [...items, poiId]));
-  };
-
   const removeTripConstraintPoi = (poiId: string) => {
     setMustIncludePoiIds((items) => items.filter((id) => id !== poiId));
     setExcludePoiIds((items) => items.filter((id) => id !== poiId));
@@ -1015,10 +1051,113 @@ export default function UrbanAgentPage() {
     });
   };
 
-  const selectPreviewDay = (dayNumber: number, preview = tripPreview) => {
+  const selectPreviewDay = (dayNumber: number, preview = activeTripPreview) => {
     setSelectedPreviewDay(dayNumber);
-    const firstStop = preview?.stops.find((stop) => stop.dayNumber === dayNumber);
+    const firstStop = preview?.stops
+      .filter((stop) => stop.dayNumber === dayNumber)
+      .sort((a, b) => a.order - b.order)[0];
     setSelectedPreviewStopId(firstStop?.stopId || '');
+  };
+
+  const previewToItinerary = (preview: TripPreviewResponse) => preview.stops.map((stop, index) => {
+    const poi = poiFromV2({ poi: stop.poi, reason: stop.reason }, index);
+    const leg = stop.travelFromPrevious || {};
+    return {
+      order: index + 1,
+      dayNumber: stop.dayNumber,
+      arrivalTime: stop.arrivalTime,
+      departureTime: stop.departureTime,
+      poi,
+      suggestedStayMinutes: stop.durationMinutes,
+      travelFromPrevious: {
+        distanceKm: leg.distanceKm ?? null,
+        estimatedMinutes: leg.travelDurationMinutes ?? leg.estimatedMinutes ?? null,
+        transport,
+        distanceKnown: leg.distanceKnown,
+        travelTimeKnown: leg.travelTimeKnown,
+        source: leg.calculationSource || leg.source,
+      },
+      reason: stop.reason || poi.reason,
+    };
+  });
+
+  const applyEditableTripPreview = (preview: TripPreviewResponse, message: string) => {
+    const nextPreview = renumberTripPreview(preview);
+    setEditableTripPreview(nextPreview);
+    setItinerary(previewToItinerary(nextPreview));
+    setPoiResults(nextPreview.stops.map((stop, index) => poiFromV2({ poi: stop.poi, reason: stop.reason }, index)));
+    setTripPreviewDirty(true);
+    setTripEditMessage(message);
+    const selectedDayStillExists = nextPreview.days.some((day) => day.dayNumber === selectedPreviewDay);
+    const nextDay = selectedDayStillExists ? selectedPreviewDay : nextPreview.days[0]?.dayNumber || 1;
+    setSelectedPreviewDay(nextDay);
+    const selectedStillExists = nextPreview.stops.some((stop) => stop.stopId === selectedPreviewStopId && stop.dayNumber === nextDay);
+    const firstStop = nextPreview.stops
+      .filter((stop) => stop.dayNumber === nextDay)
+      .sort((a, b) => a.order - b.order)[0];
+    setSelectedPreviewStopId(selectedStillExists ? selectedPreviewStopId : firstStop?.stopId || '');
+  };
+
+  const includeRecommendationPoi = (poiId: string) => {
+    const existsInRecommendations = travelerRecommendations.some((item, index) => poiFromV2(item, index).id === poiId);
+    if (!existsInRecommendations || excludePoiIds.includes(poiId) || scheduledPoiIds.has(poiId) || mustIncludePoiIds.includes(poiId)) return;
+    setMustIncludePoiIds((items) => [...items, poiId]);
+    if (activeTripPreview) {
+      setTripPreviewDirty(true);
+      setTripEditMessage('Bạn đã thêm một điểm vào lựa chọn. Hãy tạo lại lịch trình để hệ thống tính toán lại.');
+    }
+  };
+
+  const excludeRecommendationPoi = (poiId: string) => {
+    const existsInRecommendations = travelerRecommendations.some((item, index) => poiFromV2(item, index).id === poiId);
+    if (!existsInRecommendations || excludePoiIds.includes(poiId)) return;
+    const scheduledStop = activeTripPreview?.stops.find((stop, index) => poiIdFromTripStop(stop, index) === poiId);
+    if (scheduledStop) {
+      removeScheduledStop(scheduledStop);
+      return;
+    }
+    setMustIncludePoiIds((items) => items.filter((id) => id !== poiId));
+    setExcludePoiIds((items) => [...items, poiId]);
+    if (activeTripPreview) {
+      setTripPreviewDirty(true);
+      setTripEditMessage('Bạn đã loại một điểm khỏi lựa chọn. Hãy tạo lại lịch trình để hệ thống tính toán lại.');
+    }
+  };
+
+  const removeScheduledStop = (stop: TripPreviewStop) => {
+    if (!activeTripPreview) return;
+    const poiId = poiIdFromTripStop(stop);
+    const nextPreview = {
+      ...activeTripPreview,
+      stops: activeTripPreview.stops.filter((item) => item.stopId !== stop.stopId),
+    };
+    if (poiId) {
+      setMustIncludePoiIds((items) => items.filter((id) => id !== poiId));
+      setExcludePoiIds((items) => (items.includes(poiId) ? items : [...items, poiId]));
+    }
+    applyEditableTripPreview(nextPreview, 'Bạn đã thay đổi lịch trình. Hãy tạo lại lịch trình để hệ thống tính toán lại.');
+  };
+
+  const moveScheduledStop = (stop: TripPreviewStop, direction: -1 | 1) => {
+    if (!activeTripPreview) return;
+    const dayStops = activeTripPreview.stops
+      .filter((item) => item.dayNumber === stop.dayNumber)
+      .sort((a, b) => a.order - b.order);
+    const index = dayStops.findIndex((item) => item.stopId === stop.stopId);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= dayStops.length) return;
+    const reorderedDayStops = [...dayStops];
+    [reorderedDayStops[index], reorderedDayStops[nextIndex]] = [reorderedDayStops[nextIndex], reorderedDayStops[index]];
+    const reorderedIds = new globalThis.Map(reorderedDayStops.map((item, itemIndex) => [item.stopId, itemIndex + 1]));
+    const nextPreview = {
+      ...activeTripPreview,
+      stops: activeTripPreview.stops.map((item) => (
+        item.dayNumber === stop.dayNumber && reorderedIds.has(item.stopId)
+          ? { ...item, order: reorderedIds.get(item.stopId) || item.order }
+          : item
+      )),
+    };
+    applyEditableTripPreview(nextPreview, 'Lịch trình đã được chỉnh thủ công và chưa được tính toán lại.');
   };
 
   const loadTravelerRecommendations = async () => {
@@ -1046,7 +1185,7 @@ export default function UrbanAgentPage() {
     }
   };
 
-  const openPreviewDayMap = (dayNumber: number, preview = tripPreview) => {
+  const openPreviewDayMap = (dayNumber: number, preview = activeTripPreview) => {
     if (!preview) return;
     const stops = preview.stops
       .filter((stop) => stop.dayNumber === dayNumber)
@@ -1079,38 +1218,23 @@ export default function UrbanAgentPage() {
       const preview = response?.data?.trip as TripPreviewResponse | undefined;
       if (!preview) throw new Error('Chưa tạo được lịch trình từ phản hồi máy chủ.');
       setTripPreview(preview);
+      setEditableTripPreview(preview);
+      setTripPreviewDirty(false);
+      setTripEditMessage('');
       setTravelerRequestId(response?.meta?.requestId || '');
-      const nextItinerary = preview.stops.map((stop, index) => {
-        const poi = poiFromV2({ poi: stop.poi, reason: stop.reason }, index);
-        const leg = stop.travelFromPrevious || {};
-        return {
-          order: index + 1,
-          dayNumber: stop.dayNumber,
-          arrivalTime: stop.arrivalTime,
-          departureTime: stop.departureTime,
-          poi,
-          suggestedStayMinutes: stop.durationMinutes,
-          travelFromPrevious: {
-            distanceKm: leg.distanceKm ?? null,
-            estimatedMinutes: leg.travelDurationMinutes ?? leg.estimatedMinutes ?? null,
-            transport,
-            distanceKnown: leg.distanceKnown,
-            travelTimeKnown: leg.travelTimeKnown,
-            source: leg.calculationSource || leg.source,
-          },
-          reason: stop.reason || poi.reason,
-        };
-      });
-      setItinerary(nextItinerary);
+      setItinerary(previewToItinerary(preview));
       setSavedRouteSummary({
         totalDistanceKm: preview.routeSummary?.totalDistanceKm ?? undefined,
         totalDurationMinutes: preview.routeSummary?.totalTravelMinutes ?? undefined,
         warnings: (preview.warnings || []).map((warning) => warning.code),
       });
       setPoiResults(preview.stops.map((stop, index) => poiFromV2({ poi: stop.poi, reason: stop.reason }, index)));
-      const firstDay = preview.days[0]?.dayNumber || 1;
-      setSelectedPreviewDay(firstDay);
-      setSelectedPreviewStopId(preview.stops.find((stop) => stop.dayNumber === firstDay)?.stopId || '');
+      const selectedStillValid = preview.days.some((day) => day.dayNumber === selectedPreviewDay);
+      const nextDay = selectedStillValid ? selectedPreviewDay : preview.days[0]?.dayNumber || 1;
+      setSelectedPreviewDay(nextDay);
+      setSelectedPreviewStopId(preview.stops
+        .filter((stop) => stop.dayNumber === nextDay)
+        .sort((a, b) => a.order - b.order)[0]?.stopId || '');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không tạo được trip preview.');
     } finally {
@@ -1768,7 +1892,7 @@ export default function UrbanAgentPage() {
                     className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#E76F51] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#d85f44] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {previewLoading ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
-                    Tạo lịch trình
+                    {activeTripPreview ? 'Tạo lại lịch trình' : 'Tạo lịch trình'}
                   </button>
                 </div>
               </div>
@@ -1871,12 +1995,14 @@ export default function UrbanAgentPage() {
                 {travelerRequestId && <span className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-400">Mã yêu cầu {travelerRequestId}</span>}
               </div>
 
-              {!tripPreview && travelerRecommendations.length > 0 && (
+              {travelerRecommendations.length > 0 && (
                 <div className="mb-4 grid gap-3 md:grid-cols-2">
                   {travelerRecommendations.slice(0, 4).map((item, index) => {
                     const poi = poiFromV2(item, index);
                     const isIncluded = mustIncludePoiIds.includes(poi.id);
                     const isExcluded = excludePoiIds.includes(poi.id);
+                    const isScheduled = scheduledPoiIds.has(poi.id);
+                    const addDisabled = isIncluded || isExcluded || isScheduled;
                     return (
                       <div key={poi.id} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
                         <div className="flex items-start justify-between gap-3">
@@ -1898,20 +2024,22 @@ export default function UrbanAgentPage() {
                         <div className="mt-3 flex flex-wrap gap-2">
                           <button
                             type="button"
-                            onClick={() => addMustIncludePoi(poi.id)}
-                            disabled={isIncluded}
+                            onClick={() => includeRecommendationPoi(poi.id)}
+                            disabled={addDisabled}
                             className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
-                              isIncluded
+                              isIncluded || isScheduled
                                 ? 'border-emerald-300/40 bg-emerald-300/10 text-emerald-100'
+                                : isExcluded
+                                  ? 'border-rose-300/40 bg-rose-300/10 text-rose-100'
                                 : 'border-slate-700 text-slate-200 hover:border-emerald-300 hover:text-emerald-100'
                             }`}
                           >
                             <Plus size={13} />
-                            {isIncluded ? 'Đã thêm' : 'Thêm vào lịch'}
+                            {isScheduled ? 'Đã trong lịch' : isExcluded ? 'Đã loại' : isIncluded ? 'Đã thêm' : 'Thêm vào lịch'}
                           </button>
                           <button
                             type="button"
-                            onClick={() => addExcludedPoi(poi.id)}
+                            onClick={() => excludeRecommendationPoi(poi.id)}
                             disabled={isExcluded}
                             className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
                               isExcluded
@@ -1920,7 +2048,7 @@ export default function UrbanAgentPage() {
                             }`}
                           >
                             <X size={13} />
-                            {isExcluded ? 'Đã loại' : 'Loại khỏi lịch'}
+                            {isExcluded ? 'Đã loại' : isScheduled ? 'Bỏ khỏi lịch' : 'Loại khỏi lịch'}
                           </button>
                         </div>
                       </div>
@@ -1956,27 +2084,41 @@ export default function UrbanAgentPage() {
                 </div>
               )}
 
-              {tripPreview ? (
+              {activeTripPreview ? (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 font-semibold text-emerald-100">
-                      {tripPreview.feasibilityStatus}
+                      {activeTripPreview.feasibilityStatus}
                     </span>
                     <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">
-                      {tripPreview.stops.length} stops
+                      {activeTripPreview.stops.length} điểm dừng
                     </span>
                     <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">
-                      Thời gian di chuyển ước tính: {tripPreview.routeSummary?.totalTravelMinutes ?? '--'} phút
+                      Thời gian di chuyển ước tính: {activeTripPreview.routeSummary?.totalTravelMinutes ?? '--'} phút
                     </span>
-                    {(tripPreview.warnings || []).slice(0, 3).map((warning) => (
+                    {(activeTripPreview.warnings || []).slice(0, 3).map((warning) => (
                       <span key={warning.code} className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-amber-100">
                         {warning.code}
                       </span>
                     ))}
                   </div>
+                  {tripPreviewDirty && (
+                    <div className="flex flex-col gap-3 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100 md:flex-row md:items-center md:justify-between">
+                      <span>{tripEditMessage || 'Bạn đã thay đổi lịch trình. Hãy tạo lại lịch trình để hệ thống tính toán lại.'}</span>
+                      <button
+                        type="button"
+                        onClick={createTripPreview}
+                        disabled={previewLoading || Boolean(travelerValidationError)}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#E76F51] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#d85f44] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {previewLoading ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
+                        Tạo lại lịch trình
+                      </button>
+                    </div>
+                  )}
 
                   <div className="flex gap-2 overflow-x-auto pb-1">
-                    {tripPreview.days.map((day) => (
+                    {activeTripPreview.days.map((day) => (
                       <button
                         key={day.dayNumber}
                         type="button"
@@ -1993,9 +2135,11 @@ export default function UrbanAgentPage() {
                     ))}
                   </div>
 
-                  {tripPreview.days.map((day) => {
+                  {activeTripPreview.days.map((day) => {
                     if (day.dayNumber !== selectedPreviewDay) return null;
-                    const dayStops = tripPreview.stops.filter((stop) => stop.dayNumber === day.dayNumber);
+                    const dayStops = activeTripPreview.stops
+                      .filter((stop) => stop.dayNumber === day.dayNumber)
+                      .sort((a, b) => a.order - b.order);
                     return (
                       <div key={day.dayNumber} className="rounded-xl border border-slate-800 bg-slate-900 p-4">
                         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -2020,17 +2164,16 @@ export default function UrbanAgentPage() {
                         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
                           <div className="space-y-3">
                             {dayStops.length === 0 && <EmptyState text="Ngày này chưa có điểm dừng phù hợp." />}
-                            {dayStops.map((stop) => {
+                            {dayStops.map((stop, stopIndex) => {
                               const poi = poiFromV2({ poi: stop.poi, reason: stop.reason }, stop.order - 1);
                               const leg = stop.travelFromPrevious;
                               const travelKnown = leg?.distanceKnown !== false && leg?.travelTimeKnown !== false;
                               const selected = selectedPreviewStopId === stop.stopId;
                               return (
-                                <button
+                                <div
                                   key={stop.stopId}
-                                  type="button"
                                   onClick={() => setSelectedPreviewStopId(stop.stopId)}
-                                  className={`w-full rounded-xl border p-4 text-left transition ${
+                                  className={`trip-preview-stop-card w-full cursor-pointer rounded-xl border p-4 text-left transition ${
                                     selected
                                       ? 'border-[#E76F51] bg-[#E76F51]/10'
                                       : 'border-slate-800 bg-slate-950/70 hover:border-slate-600'
@@ -2074,7 +2217,16 @@ export default function UrbanAgentPage() {
                                   {Boolean(stop.warnings?.length) && (
                                     <p className="mt-2 text-xs text-amber-200">{stop.warnings?.join(', ')}</p>
                                   )}
-                                </button>
+                                  <div className="mt-3" onClick={(event) => event.stopPropagation()}>
+                                    <TripPreviewStopActions
+                                      canMoveUp={stopIndex > 0}
+                                      canMoveDown={stopIndex < dayStops.length - 1}
+                                      onMoveUp={() => moveScheduledStop(stop, -1)}
+                                      onMoveDown={() => moveScheduledStop(stop, 1)}
+                                      onRemove={() => removeScheduledStop(stop)}
+                                    />
+                                  </div>
+                                </div>
                               );
                             })}
                           </div>
