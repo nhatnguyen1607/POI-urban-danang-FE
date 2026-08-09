@@ -83,7 +83,7 @@ export function LoginPage() {
       await signInWithDemo();
       navigate('/urban-agent', { replace: true });
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : 'Khong the vao ban demo.');
+      setLocalError(error instanceof Error ? error.message : 'Không thể vào chế độ phát triển.');
     } finally {
       setSubmitting(false);
     }
@@ -124,7 +124,7 @@ export function LoginPage() {
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 font-semibold text-cyan-800 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <UserRound size={18} />
-            Vào bản demo
+            Chế độ phát triển
           </button>
         )}
         <button
