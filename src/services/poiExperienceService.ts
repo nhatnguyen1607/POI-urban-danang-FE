@@ -16,6 +16,9 @@ import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import type { User } from 'firebase/auth';
 import { db, storage } from './firebase';
 
+const demoAuthMode = import.meta.env.VITE_DEMO_AUTH_MODE === 'true';
+const demoSessionKey = 'danang-urban-agent-demo-session';
+
 export interface SearchablePoi {
   id: string;
   poiId?: string;
@@ -392,15 +395,20 @@ export async function recordUserAnalyticsEvent(input: {
 }
 
 export function subscribePoiReviews(poiId: string, onChange: (reviews: PoiReview[]) => void): Unsubscribe {
-  if (!db || !poiId) {
+  const isDemoSession = demoAuthMode && sessionStorage.getItem(demoSessionKey) === 'true';
+  if (!db || !poiId || isDemoSession) {
     onChange([]);
     return () => undefined;
   }
-  return onSnapshot(firestoreQuery(collection(db, 'reviews'), where('poiId', '==', poiId)), (snapshot) => {
-    const reviews = snapshot.docs
-      .map((item) => ({ id: item.id, ...item.data() }) as PoiReview)
-      .filter((review) => review.status !== 'hidden')
-      .sort((a, b) => Number(b.createdAt?.toMillis?.() || 0) - Number(a.createdAt?.toMillis?.() || 0));
-    onChange(reviews);
-  });
+  return onSnapshot(
+    firestoreQuery(collection(db, 'reviews'), where('poiId', '==', poiId)),
+    (snapshot) => {
+      const reviews = snapshot.docs
+        .map((item) => ({ id: item.id, ...item.data() }) as PoiReview)
+        .filter((review) => review.status !== 'hidden')
+        .sort((a, b) => Number(b.createdAt?.toMillis?.() || 0) - Number(a.createdAt?.toMillis?.() || 0));
+      onChange(reviews);
+    },
+    () => onChange([]),
+  );
 }
