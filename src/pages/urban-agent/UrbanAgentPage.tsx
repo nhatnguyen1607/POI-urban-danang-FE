@@ -247,6 +247,7 @@ interface SavedItinerary {
     poiSnapshot?: Partial<PoiResult>;
   }[];
   warnings?: unknown[];
+  needsReplan?: boolean;
   updatedAt?: string;
   createdAt?: string;
 }
@@ -861,6 +862,7 @@ export default function UrbanAgentPage() {
   } | null>(null);
   const [openedSavedItineraryId, setOpenedSavedItineraryId] = useState('');
   const [savingItinerary, setSavingItinerary] = useState(false);
+  const [tripLifecycleLoading, setTripLifecycleLoading] = useState(false);
   const [savedTripsLoading, setSavedTripsLoading] = useState(false);
   const [deletingTripId, setDeletingTripId] = useState('');
   const [bookingGrabId, setBookingGrabId] = useState('');
@@ -1134,9 +1136,64 @@ export default function UrbanAgentPage() {
     setSelectedPreviewStopId(selectedStillExists ? selectedPreviewStopId : firstStop?.stopId || '');
   };
 
-  const includeRecommendationPoi = (poiId: string) => {
+  const applySavedTripLifecycleState = (savedTrip: SavedItinerary, message: string) => {
+    setSavedItineraries((items) => [savedTrip, ...items.filter((item) => item.tripId !== savedTrip.tripId)]);
+    setOpenedSavedItineraryId(savedTrip.tripId);
+    setMustIncludePoiIds(savedTrip.includedPoiIds || []);
+    setExcludePoiIds(savedTrip.excludedPoiIds || []);
+    if (savedTrip.preview) {
+      const preview = renumberTripPreview(savedTrip.preview);
+      setTripPreview(preview);
+      setEditableTripPreview(preview);
+      setItinerary(previewToItinerary(preview));
+      setPoiResults(preview.stops.map((stop, index) => poiFromV2({ poi: stop.poi, reason: stop.reason }, index)));
+      const selectedDayStillExists = preview.days.some((day) => day.dayNumber === selectedPreviewDay);
+      const nextDay = selectedDayStillExists ? selectedPreviewDay : preview.days[0]?.dayNumber || 1;
+      setSelectedPreviewDay(nextDay);
+      const selectedStillExists = preview.stops.some((stop) => stop.stopId === selectedPreviewStopId && stop.dayNumber === nextDay);
+      const firstStop = preview.stops
+        .filter((stop) => stop.dayNumber === nextDay)
+        .sort((a, b) => a.order - b.order)[0];
+      setSelectedPreviewStopId(selectedStillExists ? selectedPreviewStopId : firstStop?.stopId || '');
+      setSavedRouteSummary({
+        totalDistanceKm: preview.routeSummary?.totalDistanceKm ?? undefined,
+        totalDurationMinutes: preview.routeSummary?.totalTravelMinutes ?? undefined,
+        warnings: (preview.warnings || []).map((warning) => warning.code),
+      });
+    }
+    const needsReplan = Boolean(savedTrip.needsReplan);
+    setTripPreviewDirty(needsReplan);
+    setTripEditMessage(needsReplan ? message : '');
+    setSaveMessage(message);
+  };
+
+  const includeRecommendationPoi = async (poiId: string) => {
     const existsInRecommendations = travelerRecommendations.some((item, index) => poiFromV2(item, index).id === poiId);
     if (!existsInRecommendations || excludePoiIds.includes(poiId) || scheduledPoiIds.has(poiId) || mustIncludePoiIds.includes(poiId)) return;
+    if (openedSavedItineraryId) {
+      setTripLifecycleLoading(true);
+      setSaveMessage('');
+      try {
+        const response = await apiClient.post(`/api/v2/trips/${openedSavedItineraryId}/stops`, {
+          poiId,
+          dayNumber: selectedPreviewDay,
+        });
+        const savedTrip = response?.data?.trip as SavedItinerary | undefined;
+        if (savedTrip) {
+          applySavedTripLifecycleState(
+            savedTrip,
+            language === 'vi'
+              ? 'Đã thêm điểm vào lịch đã lưu. Hãy tạo lại lịch trình để hệ thống tính toán lại.'
+              : 'Stop added to the saved trip. Replan to recalculate it.',
+          );
+        }
+      } catch (error) {
+        setSaveMessage(error instanceof Error ? error.message : t.saveFailed);
+      } finally {
+        setTripLifecycleLoading(false);
+      }
+      return;
+    }
     setMustIncludePoiIds((items) => [...items, poiId]);
     if (activeTripPreview) {
       setTripPreviewDirty(true);
@@ -1144,12 +1201,12 @@ export default function UrbanAgentPage() {
     }
   };
 
-  const excludeRecommendationPoi = (poiId: string) => {
+  const excludeRecommendationPoi = async (poiId: string) => {
     const existsInRecommendations = travelerRecommendations.some((item, index) => poiFromV2(item, index).id === poiId);
     if (!existsInRecommendations || excludePoiIds.includes(poiId)) return;
     const scheduledStop = activeTripPreview?.stops.find((stop, index) => poiIdFromTripStop(stop, index) === poiId);
     if (scheduledStop) {
-      removeScheduledStop(scheduledStop);
+      await removeScheduledStop(scheduledStop);
       return;
     }
     setMustIncludePoiIds((items) => items.filter((id) => id !== poiId));
@@ -1160,8 +1217,29 @@ export default function UrbanAgentPage() {
     }
   };
 
-  const removeScheduledStop = (stop: TripPreviewStop) => {
+  const removeScheduledStop = async (stop: TripPreviewStop) => {
     if (!activeTripPreview) return;
+    if (openedSavedItineraryId) {
+      setTripLifecycleLoading(true);
+      setSaveMessage('');
+      try {
+        const response = await apiClient.delete(`/api/v2/trips/${openedSavedItineraryId}/stops/${stop.stopId}`);
+        const savedTrip = response?.data?.trip as SavedItinerary | undefined;
+        if (savedTrip) {
+          applySavedTripLifecycleState(
+            savedTrip,
+            language === 'vi'
+              ? 'Đã bỏ điểm khỏi lịch đã lưu. Hãy tạo lại lịch trình để hệ thống tính toán lại.'
+              : 'Stop removed from the saved trip. Replan to recalculate it.',
+          );
+        }
+      } catch (error) {
+        setSaveMessage(error instanceof Error ? error.message : t.saveFailed);
+      } finally {
+        setTripLifecycleLoading(false);
+      }
+      return;
+    }
     const poiId = poiIdFromTripStop(stop);
     const nextPreview = {
       ...activeTripPreview,
@@ -1174,7 +1252,7 @@ export default function UrbanAgentPage() {
     applyEditableTripPreview(nextPreview, 'Bạn đã thay đổi lịch trình. Hãy tạo lại lịch trình để hệ thống tính toán lại.');
   };
 
-  const moveScheduledStop = (stop: TripPreviewStop, direction: -1 | 1) => {
+  const moveScheduledStop = async (stop: TripPreviewStop, direction: -1 | 1) => {
     if (!activeTripPreview) return;
     const dayStops = activeTripPreview.stops
       .filter((item) => item.dayNumber === stop.dayNumber)
@@ -1184,6 +1262,30 @@ export default function UrbanAgentPage() {
     if (index < 0 || nextIndex < 0 || nextIndex >= dayStops.length) return;
     const reorderedDayStops = [...dayStops];
     [reorderedDayStops[index], reorderedDayStops[nextIndex]] = [reorderedDayStops[nextIndex], reorderedDayStops[index]];
+    if (openedSavedItineraryId) {
+      setTripLifecycleLoading(true);
+      setSaveMessage('');
+      try {
+        const response = await apiClient.patch(`/api/v2/trips/${openedSavedItineraryId}/stops/reorder`, {
+          dayNumber: stop.dayNumber,
+          stopIds: reorderedDayStops.map((item) => item.stopId),
+        });
+        const savedTrip = response?.data?.trip as SavedItinerary | undefined;
+        if (savedTrip) {
+          applySavedTripLifecycleState(
+            savedTrip,
+            language === 'vi'
+              ? 'Lịch đã lưu được sắp xếp thủ công và chưa được tính toán lại.'
+              : 'Saved trip order was changed manually and has not been recalculated.',
+          );
+        }
+      } catch (error) {
+        setSaveMessage(error instanceof Error ? error.message : t.saveFailed);
+      } finally {
+        setTripLifecycleLoading(false);
+      }
+      return;
+    }
     const reorderedIds = new globalThis.Map(reorderedDayStops.map((item, itemIndex) => [item.stopId, itemIndex + 1]));
     const nextPreview = {
       ...activeTripPreview,
@@ -1250,6 +1352,17 @@ export default function UrbanAgentPage() {
     setPreviewLoading(true);
     setError('');
     try {
+      if (openedSavedItineraryId) {
+        const response = await apiClient.post(`/api/v2/trips/${openedSavedItineraryId}/replan`);
+        const savedTrip = response?.data?.trip as SavedItinerary | undefined;
+        if (!savedTrip) throw new Error(language === 'vi' ? 'Chưa tạo lại được lịch trình đã lưu.' : 'Could not replan the saved trip.');
+        applySavedTripLifecycleState(
+          savedTrip,
+          language === 'vi' ? 'Đã tạo lại lịch trình đã lưu.' : 'Saved trip replanned.',
+        );
+        setTravelerRequestId(response?.meta?.requestId || '');
+        return;
+      }
       const response = await apiClient.post('/api/v2/trips/preview', tripRequestBody());
       const preview = response?.data?.trip as TripPreviewResponse | undefined;
       if (!preview) throw new Error('Chưa tạo được lịch trình từ phản hồi máy chủ.');
@@ -1439,6 +1552,7 @@ export default function UrbanAgentPage() {
     itinerary,
     warnings: activeTripPreview?.warnings || [],
     status: 'saved',
+    needsReplan: tripPreviewDirty,
   });
 
   const saveCurrentItinerary = async () => {
@@ -1532,8 +1646,14 @@ export default function UrbanAgentPage() {
         );
         setSavedRouteSummary(null);
       }
-      setTripPreviewDirty(false);
-      setTripEditMessage('');
+      setTripPreviewDirty(Boolean(loaded.needsReplan));
+      setTripEditMessage(
+        loaded.needsReplan
+          ? language === 'vi'
+            ? 'Lịch trình đã có thay đổi và cần tạo lại để hệ thống tính toán lại.'
+            : 'This itinerary has saved changes and needs to be recalculated.'
+          : '',
+      );
       setOpenedSavedItineraryId(loaded.tripId);
       setSaveMessage(t.savedOpened);
     } catch (error) {
@@ -1994,7 +2114,7 @@ export default function UrbanAgentPage() {
                   <button
                     type="button"
                     onClick={createTripPreview}
-                    disabled={previewLoading || Boolean(travelerValidationError)}
+                    disabled={previewLoading || tripLifecycleLoading || Boolean(travelerValidationError)}
                     className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#E76F51] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#d85f44] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {previewLoading ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
@@ -2108,7 +2228,7 @@ export default function UrbanAgentPage() {
                     const isIncluded = mustIncludePoiIds.includes(poi.id);
                     const isExcluded = excludePoiIds.includes(poi.id);
                     const isScheduled = scheduledPoiIds.has(poi.id);
-                    const addDisabled = isIncluded || isExcluded || isScheduled;
+                    const addDisabled = tripLifecycleLoading || isIncluded || isExcluded || isScheduled;
                     return (
                       <div key={poi.id} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
                         <div className="flex items-start justify-between gap-3">
@@ -2146,7 +2266,7 @@ export default function UrbanAgentPage() {
                           <button
                             type="button"
                             onClick={() => excludeRecommendationPoi(poi.id)}
-                            disabled={isExcluded}
+                            disabled={tripLifecycleLoading || isExcluded}
                             className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
                               isExcluded
                                 ? 'border-rose-300/40 bg-rose-300/10 text-rose-100'
@@ -2214,7 +2334,7 @@ export default function UrbanAgentPage() {
                       <button
                         type="button"
                         onClick={createTripPreview}
-                        disabled={previewLoading || Boolean(travelerValidationError)}
+                        disabled={previewLoading || tripLifecycleLoading || Boolean(travelerValidationError)}
                         className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#E76F51] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#d85f44] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {previewLoading ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
@@ -2330,6 +2450,7 @@ export default function UrbanAgentPage() {
                                       onMoveUp={() => moveScheduledStop(stop, -1)}
                                       onMoveDown={() => moveScheduledStop(stop, 1)}
                                       onRemove={() => removeScheduledStop(stop)}
+                                      disabled={tripLifecycleLoading}
                                     />
                                   </div>
                                 </div>
