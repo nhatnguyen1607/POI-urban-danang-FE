@@ -11,15 +11,11 @@ import {
   Map,
   MapPin,
   Play,
-  Plus,
   Route,
   Save,
   Sparkles,
-  ThumbsDown,
-  ThumbsUp,
   Trash2,
   Users,
-  UploadCloud,
   X,
 } from 'lucide-react';
 import { useRef } from 'react';
@@ -29,10 +25,19 @@ import 'leaflet/dist/leaflet.css';
 import { apiClient } from '../../utils/apiClient';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { useAuth } from '../../auth/useAuth';
-import { incrementPoiCounter } from '../../services/poiExperienceService';
 import { TripPreviewDayMap } from './TripPreviewDayMap';
 import { TripPreviewStopActions } from './TripPreviewStopActions';
 import { TravelerItineraryViewSwitch, type TravelerItineraryView } from './TravelerItineraryViewSwitch';
+import {
+  TravelerRecommendationPanel,
+  type TravelerRecommendationCandidate,
+} from './TravelerRecommendationPanel';
+import {
+  humanizeFeasibility,
+  humanizeReasonCode,
+  humanizeWarning,
+  uniquePresentationLabels,
+} from './travelerPresentation';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -204,25 +209,6 @@ interface RouteResult {
   };
 }
 
-interface AgentTrainingStatus {
-  backend?: {
-    synthetic?: { sample_count?: number; expected_poi_count?: number; hard_negative_count?: number };
-    representationData?: { record_count?: number; by_record_type?: Record<string, number> };
-    learningLoop?: {
-      before?: Record<string, number>;
-      after?: Record<string, number>;
-      delta?: Record<string, number>;
-    };
-  };
-  research?: {
-    twoTowerMetrics?: {
-      test?: Record<string, number>;
-      data?: { pair_records?: number; positive_records?: number; negative_records?: number };
-    };
-    rerankerMetrics?: { test?: Record<string, number> };
-  };
-}
-
 interface SavedItinerary {
   tripId: string;
   title: string;
@@ -262,41 +248,6 @@ const TRAVEL_INTERESTS = [
   'văn hóa - bảo tàng',
   'phù hợp gia đình',
 ];
-const ROUTE_REROUTE_DISTANCE_M = 35;
-const ROUTE_REROUTE_MIN_INTERVAL_MS = 12000;
-const ROUTE_MAX_GPS_ACCURACY_M = 100;
-const originIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
-const destIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
-const stopIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
-const warningIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-yellow.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
 
 function todayIso() {
   const now = new Date();
@@ -396,24 +347,6 @@ function routeCoordinates(route?: RouteResult) {
     .map((coord: number[]) => [coord[1], coord[0]] as [number, number]);
 }
 
-function normalizeRouteResult(input: any): RouteResult | null {
-  const coordinates = input?.route?.coordinates || input?.geometry?.coordinates || input?.coordinates || [];
-  if (!Array.isArray(coordinates) || !coordinates.length) return null;
-  return {
-    route: { coordinates },
-    distance: Number(input?.distance) || 0,
-    duration: Number(input?.duration) || 0,
-    steps: Array.isArray(input?.steps) ? input.steps : [],
-    esValidation: {
-      valid: Boolean(input?.esValidation?.valid),
-      warnings: Array.isArray(input?.esValidation?.warnings) ? input.esValidation.warnings : [],
-      ruleTrace: Array.isArray(input?.esValidation?.ruleTrace) ? input.esValidation.ruleTrace : [],
-      fuzzyInsights: Array.isArray(input?.esValidation?.fuzzyInsights) ? input.esValidation.fuzzyInsights : [],
-      totalRulesChecked: Number(input?.esValidation?.totalRulesChecked) || 0,
-    },
-  };
-}
-
 function valueRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
@@ -440,8 +373,8 @@ function poiFromV2(input: unknown, fallbackIndex = 0): PoiResult {
     address: stringValue(address.current) || stringValue(address.raw) || stringValue(poi.address) || stringValue(poi.addressRaw),
     category: stringValue(poi.category) || stringValue(poi.categoryNormalized) || 'place',
     district: stringValue(address.district) || stringValue(poi.district) || 'Đà Nẵng',
-    lat: Number.isFinite(lat) ? lat : DA_NANG_CENTER.lat,
-    lon: Number.isFinite(lon) ? lon : DA_NANG_CENTER.lon,
+    lat: Number.isFinite(lat) ? lat : Number.NaN,
+    lon: Number.isFinite(lon) ? lon : Number.NaN,
     hasCoordinates: Boolean(location.hasCoordinates ?? (Number.isFinite(lat) && Number.isFinite(lon))),
     rating: Number(normalizedRating.value ?? poi.rating) || undefined,
     score: Math.round(score <= 1 ? score * 100 : score),
@@ -548,48 +481,12 @@ function formatCurrentWeather(weather: any, waitingText: string, language: 'vi' 
     : (language === 'vi' ? 'Không mưa' : 'No rain');
   return [tempText, description, rainText].filter(Boolean).join(' · ');
 }
-function getCurrentLocationOnce(language: 'vi' | 'en' = 'vi') {
-  return new Promise<{ lat: number; lng: number }>((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error(language === 'vi' ? 'Trình duyệt không hỗ trợ Geolocation.' : 'This browser does not support Geolocation.'));
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
-      (error) => reject(new Error(error.message || (language === 'vi' ? 'Không lấy được vị trí GPS hiện tại.' : 'Could not get the current GPS location.'))),
-      { enableHighAccuracy: true, maximumAge: 2500, timeout: 12000 },
-    );
-  });
-}
-
-function openGrabBooking(params: {
-  pickupLat?: number;
-  pickupLng?: number;
-  dropoffLat: number;
-  dropoffLng: number;
-  dropoffName: string;
-  dropoffAddress: string;
-}) {
-  const pickupParams = Number.isFinite(params.pickupLat) && Number.isFinite(params.pickupLng)
-    ? `&pickupLatitude=${params.pickupLat}&pickupLongitude=${params.pickupLng}`
-    : '';
-  const grabUrl =
-    `grab://open?screenType=BOOKING` +
-    pickupParams +
-    `&dropOffLatitude=${params.dropoffLat}` +
-    `&dropOffLongitude=${params.dropoffLng}` +
-    `&dropOffAddress=${encodeURIComponent(params.dropoffAddress)}` +
-    `&dropOffName=${encodeURIComponent(params.dropoffName)}`;
-
-  window.location.href = grabUrl;
-}
-
 const copy = {
   vi: {
-    heroBadge: 'Intent - Plan - Tools - Route - Memory - Market Signal',
-    title: 'Danang UrbanAgent AI',
+    heroBadge: 'Lịch trình thông minh cho Đà Nẵng',
+    title: 'UrbanAgent',
     subtitle:
-      'Agent đô thị cho Đà Nẵng: khách du lịch tạo lịch trình có quán ăn, cafe, điểm chơi; người kinh doanh phân tích vị trí bằng demand proxy và cạnh tranh.',
+      'Tìm địa điểm hợp sở thích, sắp xếp lịch trình theo từng ngày và theo dõi chuyến đi trên bản đồ.',
     travelerTitle: 'Khách đi chơi',
     travelerSubtitle: 'Tạo lịch trình, tìm quán hợp gu, chỉnh điểm đến và xem route bằng hệ chuyên gia.',
     travelerSample: 'Tạo cho tôi một lộ trình đi chơi tối nay có quán ăn, quán cafe yên tĩnh gần biển, đi bằng xe máy.',
@@ -601,40 +498,6 @@ const copy = {
     motorbike: 'Xe máy',
     car: 'Ô tô / Grab',
     walking: 'Đi bộ',
-    run: 'Chạy agent',
-    principle:
-      'Agent học từ phản hồi người dùng. MVP ghi lại lựa chọn, like/dislike và chỉnh sửa lịch trình để sau này huấn luyện reranker/fine-tune. Chỉ số kinh doanh là demand proxy, không phải mật độ khách thật.',
-    itinerary: 'Lịch trình agent đề xuất',
-    editable: 'Có thể thêm/xóa điểm trong MVP',
-    emptyItinerary: 'Chạy agent để tạo lịch trình.',
-    addable: 'POI có thể thêm',
-    multimodalSearch: 'Tìm địa điểm bằng mô tả hoặc ảnh',
-    imageHint: 'Thêm ảnh phong cách/quán mẫu',
-    chooseImage: 'Chọn ảnh',
-    changeImage: 'Đổi ảnh',
-    routeMapTitle: 'Bản đồ chỉ đường AI',
-    routeMapHint: 'Hệ chuyên gia phân tích tuyến đường, luật giao thông và cảnh báo rủi ro.',
-    routeLegal: 'Hợp pháp',
-    routeWarnings: 'cảnh báo',
-    tripDuration: 'Thời lượng đi chơi',
-    fullRoute: 'Xem toàn bộ lộ trình',
-    fullRouteTitle: 'Toàn bộ lộ trình',
-    hours2: '2 giờ',
-    hours3: '3 giờ',
-    hours4: '4 giờ',
-    hours6: '6 giờ',
-    stopLabel: 'Điểm dừng',
-    avoidSegment: 'Đoạn cần lưu ý',
-    routeSteps: 'Hướng dẫn từng bước',
-    routeFuzzy: 'Đánh giá giao thông',
-    routePanel: 'Route hệ chuyên gia',
-    routeHint: 'Bấm “Route AI” ở từng POI để xem hướng dẫn nội bộ trước khi mở Google Maps.',
-    routeAi: 'Route AI',
-    openMaps: 'Google Maps',
-    add: 'Thêm',
-    remove: 'Xóa khỏi lịch trình',
-    useful: 'Hữu ích',
-    notFit: 'Không phù hợp',
     inPlan: 'Điểm trong lịch',
     totalMove: 'Tổng di chuyển',
     weather: 'Thời tiết',
@@ -660,7 +523,6 @@ const copy = {
     competition: 'Cạnh tranh',
     topCategories: 'Danh mục nổi bật',
     samplePois: 'POI mẫu',
-    noExtra: 'Chưa có địa điểm bổ sung không trùng lịch trình.',
     travelerMode: 'Chế độ khách du lịch',
     saveItinerary: 'Lưu lịch trình',
     saveChanges: 'Lưu thay đổi',
@@ -678,26 +540,16 @@ const copy = {
     deleteTripConfirm: 'Xóa lịch trình đã lưu này?',
     deleteSuccess: 'Đã xóa lịch trình.',
     deleteFailed: 'Không thể xóa lịch trình.',
-    bookGrab: 'Đặt xe ngay',
-    bookingGrab: 'Đang mở Grab...',
-    grabNoDestination: 'Lịch trình đã lưu chưa có điểm đến hợp lệ để đặt xe.',
-    grabGpsFailed: 'Không lấy được vị trí GPS hiện tại để mở Grab.',
-    grabPickupInApp: 'Trình duyệt đang chặn GPS. Đã mở Grab với điểm đến, hãy chọn điểm đón trong Grab.',
     suggestedPlace: 'Địa điểm gợi ý',
     genericPlace: 'Địa điểm',
     defaultDistrict: 'Đà Nẵng',
     stopUnit: 'điểm dừng',
-    segmentLabel: 'Chặng',
-    segmentStart: 'Đầu chặng',
-    segmentEnd: 'Cuối chặng',
-    currentLocation: 'Vị trí hiện tại',
-    previousStop: 'Điểm trước',
   },
   en: {
-    heroBadge: 'Intent - Plan - Tools - Route - Memory - Market Signal',
-    title: 'Danang UrbanAgent AI',
+    heroBadge: 'Smart itineraries for Da Nang',
+    title: 'UrbanAgent',
     subtitle:
-      'An urban agent for Danang: travelers build food, cafe and attraction itineraries; business users analyze locations with demand proxy and competition signals.',
+      'Find places that fit your preferences, organize each day, and follow the trip on a map.',
     travelerTitle: 'Traveler',
     travelerSubtitle: 'Build itineraries, find matching POIs, edit stops, and inspect expert-system routes.',
     travelerSample: 'Create an evening itinerary with a restaurant, a quiet beach-side cafe, and motorbike routing.',
@@ -709,40 +561,6 @@ const copy = {
     motorbike: 'Motorbike',
     car: 'Car / Grab',
     walking: 'Walking',
-    run: 'Run agent',
-    principle:
-      'The agent learns from user feedback. The MVP records choices, likes/dislikes and itinerary edits for later reranking/fine-tuning. Business metrics are demand proxies, not real footfall.',
-    itinerary: 'Agent itinerary',
-    editable: 'Stops can be added or removed in the MVP',
-    emptyItinerary: 'Run the agent to create an itinerary.',
-    addable: 'Places you can add to the trip',
-    multimodalSearch: 'Find places by text or image',
-    imageHint: 'Add a style/reference image',
-    chooseImage: 'Choose image',
-    changeImage: 'Change image',
-    routeMapTitle: 'AI route map',
-    routeMapHint: 'The expert system analyzes route geometry, traffic rules and risk warnings.',
-    routeLegal: 'Valid',
-    routeWarnings: 'warnings',
-    tripDuration: 'Trip duration',
-    fullRoute: 'View full route',
-    fullRouteTitle: 'Full itinerary route',
-    hours2: '2 hours',
-    hours3: '3 hours',
-    hours4: '4 hours',
-    hours6: '6 hours',
-    stopLabel: 'Stop',
-    avoidSegment: 'Segment warning',
-    routeSteps: 'Step-by-step directions',
-    routeFuzzy: 'Traffic assessment',
-    routePanel: 'Expert route',
-    routeHint: 'Press “AI Route” on a POI to inspect in-app route guidance before opening Google Maps.',
-    routeAi: 'AI Route',
-    openMaps: 'Google Maps',
-    add: 'Add',
-    remove: 'Remove from itinerary',
-    useful: 'Useful',
-    notFit: 'Not a fit',
     inPlan: 'Stops',
     totalMove: 'Travel time',
     weather: 'Weather',
@@ -768,7 +586,6 @@ const copy = {
     competition: 'Competition',
     topCategories: 'Top categories',
     samplePois: 'Sample POIs',
-    noExtra: 'No additional non-duplicate places yet.',
     travelerMode: 'Traveler mode',
     saveItinerary: 'Save itinerary',
     saveChanges: 'Save changes',
@@ -786,20 +603,10 @@ const copy = {
     deleteTripConfirm: 'Delete this saved trip?',
     deleteSuccess: 'Trip deleted.',
     deleteFailed: 'Could not delete trip.',
-    bookGrab: 'Book Grab now',
-    bookingGrab: 'Opening Grab...',
-    grabNoDestination: 'This saved itinerary does not have a valid destination for booking.',
-    grabGpsFailed: 'Could not get your current GPS location to open Grab.',
-    grabPickupInApp: 'The browser blocked GPS. Grab opened with the destination, choose pickup inside Grab.',
     suggestedPlace: 'Suggested place',
     genericPlace: 'Place',
     defaultDistrict: 'Danang',
     stopUnit: 'stops',
-    segmentLabel: 'Segment',
-    segmentStart: 'Segment start',
-    segmentEnd: 'Segment end',
-    currentLocation: 'Current location',
-    previousStop: 'Previous stop',
   },
 };
 
@@ -821,7 +628,6 @@ export default function UrbanAgentPage() {
   const [role] = useState<Role>('traveler');
   const [query, setQuery] = useState(t.travelerSample);
   const [transport, setTransport] = useState('motorbike');
-  const [tripDurationMinutes, setTripDurationMinutes] = useState(240);
   const [tripStartDate, setTripStartDate] = useState(todayIso);
   const [tripDayCount, setTripDayCount] = useState(2);
   const [defaultStartTime, setDefaultStartTime] = useState('09:00');
@@ -838,56 +644,33 @@ export default function UrbanAgentPage() {
   const [tripEditMessage, setTripEditMessage] = useState('');
   const [travelerRequestId, setTravelerRequestId] = useState('');
   const [recommendationLoading, setRecommendationLoading] = useState(false);
+  const [recommendationsRequested, setRecommendationsRequested] = useState(false);
+  const [recommendationError, setRecommendationError] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
   const [selectedPreviewDay, setSelectedPreviewDay] = useState(1);
   const [selectedPreviewStopId, setSelectedPreviewStopId] = useState('');
   const [mobilePreviewView, setMobilePreviewView] = useState<TravelerItineraryView>('timeline');
-  const [loading, setLoading] = useState(false);
-  const [routeLoadingId, setRouteLoadingId] = useState('');
   const [error, setError] = useState('');
-  const [poiResults, setPoiResults] = useState<PoiResult[]>([]);
-  const [itinerary, setItinerary] = useState<ItineraryItem[]>([]);
   const [businessAreas, setBusinessAreas] = useState<BusinessArea[]>([]);
   const [weather, setWeather] = useState<any>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState('');
-  const [modelVersion, setModelVersion] = useState('v4');
   const [routeModalOpen, setRouteModalOpen] = useState(false);
+  const [routeModalTitle, setRouteModalTitle] = useState('Bản đồ chuyến đi');
   const [routeRoutes, setRouteRoutes] = useState<RouteResult[]>([]);
-  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
   const [routeBounds, setRouteBounds] = useState<L.LatLngBoundsExpression | null>(null);
-  const [selectedRoutePoi, setSelectedRoutePoi] = useState<PoiResult | null>(null);
   const [routeStops, setRouteStops] = useState<PoiResult[]>([]);
-  const [routeOrigin, setRouteOrigin] = useState<[number, number]>([DA_NANG_CENTER.lat, DA_NANG_CENTER.lon]);
-  const [currentLocation, setCurrentLocation] = useState(DA_NANG_CENTER);
-  const [liveRouteEnabled, setLiveRouteEnabled] = useState(false);
-  const [routeGpsAccuracy, setRouteGpsAccuracy] = useState<number | null>(null);
-  const [routeGpsError, setRouteGpsError] = useState('');
-  const [trainingStatus, setTrainingStatus] = useState<AgentTrainingStatus | null>(null);
   const [savedItineraries, setSavedItineraries] = useState<SavedItinerary[]>([]);
-  const [savedRouteSummary, setSavedRouteSummary] = useState<{
-    totalDistanceKm?: number;
-    totalDurationMinutes?: number;
-    warnings?: string[];
-  } | null>(null);
   const [openedSavedItineraryId, setOpenedSavedItineraryId] = useState('');
   const [savingItinerary, setSavingItinerary] = useState(false);
   const [tripLifecycleLoading, setTripLifecycleLoading] = useState(false);
   const [savedTripsLoading, setSavedTripsLoading] = useState(false);
   const [deletingTripId, setDeletingTripId] = useState('');
-  const [bookingGrabId, setBookingGrabId] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
-  const routeWatchIdRef = useRef<number | null>(null);
-  const lastReroutePositionRef = useRef<{ lat: number; lng: number } | null>(null);
-  const lastRerouteAtRef = useRef(0);
-  const rerouteInFlightRef = useRef(false);
   const previewStopRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     setQuery(roleCopy[role].sample);
     setError('');
-    setPoiResults([]);
-    setItinerary([]);
     setTripPreview(null);
     setEditableTripPreview(null);
     setTripPreviewDirty(false);
@@ -895,28 +678,12 @@ export default function UrbanAgentPage() {
     setBusinessAreas([]);
     setRouteModalOpen(false);
     setRouteStops([]);
-    setSavedRouteSummary(null);
     setOpenedSavedItineraryId('');
   }, [role, roleCopy]);
 
   useEffect(() => {
     setTripDayWindows((current) => createTripDayWindows(tripDayCount, defaultStartTime, defaultEndTime, current));
   }, [defaultEndTime, defaultStartTime, tripDayCount]);
-
-  useEffect(() => {
-    let mounted = true;
-    apiClient
-      .get('/api/agent/training-status')
-      .then((data) => {
-        if (mounted) setTrainingStatus(data);
-      })
-      .catch(() => {
-        if (mounted) setTrainingStatus(null);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -974,47 +741,6 @@ export default function UrbanAgentPage() {
     }
   };
 
-  const recordFeedback = async (eventType: string, payload: Record<string, unknown>) => {
-    if (!user) return;
-    try {
-      await apiClient.post('/api/agent/feedback', { role, eventType, query, payload });
-    } catch {
-      // Feedback must never block the user flow in the MVP.
-    }
-  };
-
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (imagePreview) URL.revokeObjectURL(imagePreview);
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
-  };
-
-  const convertLegacyResults = (items: any[] = []): PoiResult[] =>
-    items.map((item, index) => ({
-      id: item.id || `legacy-${index}`,
-      type: 'poi',
-      title: item.name || item.title || `${t.genericPlace} ${index + 1}`,
-      name: item.name || item.title || `${t.genericPlace} ${index + 1}`,
-      address: item.address || item.formatted_address,
-      category: item.category || item.district || t.suggestedPlace,
-      district: item.district || t.defaultDistrict,
-      lat: Number(item.lat) || DA_NANG_CENTER.lat,
-      lon: Number(item.lon || item.lng) || DA_NANG_CENTER.lon,
-      hasCoordinates: Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon || item.lng)),
-      rating: item.rating,
-      score: Math.round(Number(item.score || 0)),
-      reason: item.desc || item.reason || 'Gợi ý từ mô hình đa phương thức Version 4.',
-      actions: [
-        {
-          type: 'map',
-          label: 'Google Maps',
-          url: `https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lon || item.lng}`,
-        },
-      ],
-    }));
-
   const tripCalendarDays = useMemo(
     () => tripDayWindows.map((window) => ({
       ...window,
@@ -1038,6 +764,30 @@ export default function UrbanAgentPage() {
   const scheduledPoiIds = useMemo(() => new Set(
     (activeTripPreview?.stops || []).map((stop, index) => poiIdFromTripStop(stop, index)),
   ), [activeTripPreview]);
+  const recommendationCandidates = useMemo<TravelerRecommendationCandidate[]>(() => (
+    travelerRecommendations.map((item, index) => {
+      const poi = poiFromV2(item, index);
+      const status = scheduledPoiIds.has(poi.id)
+        ? 'scheduled'
+        : excludePoiIds.includes(poi.id)
+          ? 'excluded'
+          : mustIncludePoiIds.includes(poi.id)
+            ? 'included'
+            : 'recommended';
+      return {
+        id: poi.id,
+        title: poi.title,
+        category: poi.category,
+        address: poi.address,
+        reason: item.reason || poi.reason,
+        reasonLabels: uniquePresentationLabels(item.reasonCodes || [], humanizeReasonCode),
+        warningLabels: uniquePresentationLabels(item.warnings || [], humanizeWarning),
+        score: poi.score,
+        hasCoordinates: poi.hasCoordinates !== false && isFiniteCoord(poi.lat, poi.lon),
+        status,
+      };
+    })
+  ), [excludePoiIds, mustIncludePoiIds, scheduledPoiIds, travelerRecommendations]);
 
   const travelerValidationError = useMemo(() => {
     if (!query.trim()) return language === 'vi' ? 'Nhập nhu cầu chuyến đi trước.' : 'Enter trip preferences first.';
@@ -1142,8 +892,6 @@ export default function UrbanAgentPage() {
   const applyEditableTripPreview = (preview: TripPreviewResponse, message: string) => {
     const nextPreview = renumberTripPreview(preview);
     setEditableTripPreview(nextPreview);
-    setItinerary(previewToItinerary(nextPreview));
-    setPoiResults(nextPreview.stops.map((stop, index) => poiFromV2({ poi: stop.poi, reason: stop.reason }, index)));
     setTripPreviewDirty(true);
     setTripEditMessage(message);
     const selectedDayStillExists = nextPreview.days.some((day) => day.dayNumber === selectedPreviewDay);
@@ -1165,8 +913,6 @@ export default function UrbanAgentPage() {
       const preview = renumberTripPreview(savedTrip.preview);
       setTripPreview(preview);
       setEditableTripPreview(preview);
-      setItinerary(previewToItinerary(preview));
-      setPoiResults(preview.stops.map((stop, index) => poiFromV2({ poi: stop.poi, reason: stop.reason }, index)));
       const selectedDayStillExists = preview.days.some((day) => day.dayNumber === selectedPreviewDay);
       const nextDay = selectedDayStillExists ? selectedPreviewDay : preview.days[0]?.dayNumber || 1;
       setSelectedPreviewDay(nextDay);
@@ -1175,11 +921,6 @@ export default function UrbanAgentPage() {
         .filter((stop) => stop.dayNumber === nextDay)
         .sort((a, b) => a.order - b.order)[0];
       setSelectedPreviewStopId(selectedStillExists ? selectedPreviewStopId : firstStop?.stopId || '');
-      setSavedRouteSummary({
-        totalDistanceKm: preview.routeSummary?.totalDistanceKm ?? undefined,
-        totalDurationMinutes: preview.routeSummary?.totalTravelMinutes ?? undefined,
-        warnings: (preview.warnings || []).map((warning) => warning.code),
-      });
     }
     const needsReplan = Boolean(savedTrip.needsReplan);
     setTripPreviewDirty(needsReplan);
@@ -1324,20 +1065,22 @@ export default function UrbanAgentPage() {
       return;
     }
     setRecommendationLoading(true);
+    setRecommendationsRequested(true);
+    setRecommendationError('');
     setError('');
     try {
       const response = await apiClient.post('/api/v2/recommendations', {
         cityId: 'da-nang',
         query: query.trim(),
-        limit: 6,
+        limit: Math.min(12, tripDayCount * maxStopsPerDay + 6),
         context: {},
       });
       const recommendations = response?.data?.recommendations || [];
       setTravelerRecommendations(recommendations);
       setTravelerRequestId(response?.meta?.requestId || '');
-      setPoiResults(recommendations.map((item: TravelerRecommendationV2, index: number) => poiFromV2(item, index)));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Chưa lấy được gợi ý điểm đến. Vui lòng thử lại.');
+      const message = caught instanceof Error ? caught.message : 'Chưa lấy được gợi ý điểm đến. Vui lòng thử lại.';
+      setRecommendationError(message);
     } finally {
       setRecommendationLoading(false);
     }
@@ -1355,12 +1098,27 @@ export default function UrbanAgentPage() {
     }
     const illustrativeRoute = buildIllustrativeRoute(stops);
     setSelectedPreviewDay(dayNumber);
-    setSelectedRoutePoi(null);
+    const selectedDay = preview.days.find((day) => day.dayNumber === dayNumber);
+    setRouteModalTitle(
+      selectedDay?.date
+        ? `Bản đồ ${formatVietnameseDate(selectedDay.date)}`
+        : `Bản đồ ngày ${dayNumber}`,
+    );
     setRouteStops(stops);
     setRouteRoutes(illustrativeRoute ? [illustrativeRoute] : []);
-    setSelectedRouteIndex(0);
-    setRouteOrigin([stops[0].lat, stops[0].lon]);
     setRouteBounds(L.latLngBounds(stops.map((poi) => [poi.lat, poi.lon] as [number, number])));
+    setRouteModalOpen(true);
+  };
+
+  const openRecommendationMap = (poiId: string) => {
+    const recommendationIndex = travelerRecommendations.findIndex((item, index) => poiFromV2(item, index).id === poiId);
+    if (recommendationIndex < 0) return;
+    const poi = poiFromV2(travelerRecommendations[recommendationIndex], recommendationIndex);
+    if (poi.hasCoordinates === false || !isFiniteCoord(poi.lat, poi.lon)) return;
+    setRouteModalTitle(poi.title);
+    setRouteStops([poi]);
+    setRouteRoutes([]);
+    setRouteBounds(L.latLngBounds([[poi.lat, poi.lon]]));
     setRouteModalOpen(true);
   };
 
@@ -1370,6 +1128,7 @@ export default function UrbanAgentPage() {
       return;
     }
     setPreviewLoading(true);
+    setPreviewError('');
     setError('');
     try {
       if (openedSavedItineraryId) {
@@ -1391,13 +1150,6 @@ export default function UrbanAgentPage() {
       setTripPreviewDirty(false);
       setTripEditMessage('');
       setTravelerRequestId(response?.meta?.requestId || '');
-      setItinerary(previewToItinerary(preview));
-      setSavedRouteSummary({
-        totalDistanceKm: preview.routeSummary?.totalDistanceKm ?? undefined,
-        totalDurationMinutes: preview.routeSummary?.totalTravelMinutes ?? undefined,
-        warnings: (preview.warnings || []).map((warning) => warning.code),
-      });
-      setPoiResults(preview.stops.map((stop, index) => poiFromV2({ poi: stop.poi, reason: stop.reason }, index)));
       const selectedStillValid = preview.days.some((day) => day.dayNumber === selectedPreviewDay);
       const nextDay = selectedStillValid ? selectedPreviewDay : preview.days[0]?.dayNumber || 1;
       setSelectedPreviewDay(nextDay);
@@ -1405,151 +1157,10 @@ export default function UrbanAgentPage() {
         .filter((stop) => stop.dayNumber === nextDay)
         .sort((a, b) => a.order - b.order)[0]?.stopId || '');
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không tạo được trip preview.');
+      setPreviewError(caught instanceof Error ? caught.message : 'Chưa thể tạo lịch trình. Vui lòng thử lại.');
     } finally {
       setPreviewLoading(false);
     }
-  };
-
-  const runAgent = async () => {
-    setLoading(true);
-    setError('');
-    setOpenedSavedItineraryId('');
-    try {
-      if (role === 'traveler') {
-        const gpsLocation = await getCurrentLocationOnce(language).catch(() => ({
-          lat: currentLocation.lat,
-          lng: currentLocation.lon,
-        }));
-        const nextLocation = { lat: gpsLocation.lat, lon: gpsLocation.lng };
-        setCurrentLocation(nextLocation);
-        const semanticModel = {
-          enabled: modelVersion === 'v2' || modelVersion === 'v4',
-          version: modelVersion,
-          topK: 200,
-          candidateLimit: 200,
-        };
-        const liveContext = { location: nextLocation, durationMinutes: tripDurationMinutes };
-        const formData = new FormData();
-        formData.append('concept', query);
-        formData.append('modelVersion', modelVersion);
-        if (imageFile) formData.append('image', imageFile);
-        const itineraryRequest = user
-          ? apiClient.post('/api/agent/create-itinerary', {
-              query,
-              context: { ...liveContext, semanticModel },
-              transport,
-              limit: 6,
-              durationMinutes: tripDurationMinutes,
-            })
-          : Promise.resolve({ itinerary: [] });
-        const [itineraryData, recommendationData, weatherData, multimodalData] = await Promise.allSettled([
-          itineraryRequest,
-          apiClient.post('/api/agent/recommend-poi', {
-            query,
-            context: {
-              ...liveContext,
-              semanticModel: user ? { enabled: false, version: modelVersion } : semanticModel,
-            },
-            limit: 14,
-          }),
-          apiClient.get(`/api/weather/forecast?lat=${nextLocation.lat}&lon=${nextLocation.lon}`),
-          imageFile ? apiClient.post('/api/recommend', formData) : Promise.resolve([]),
-        ]);
-
-        if (itineraryData.status !== 'fulfilled') throw itineraryData.reason;
-        const nextItinerary = itineraryData.value.itinerary || [];
-        const usedIds = new Set(nextItinerary.map((item: ItineraryItem) => item.poi.id));
-        const semanticExtras =
-          recommendationData.status === 'fulfilled'
-            ? (recommendationData.value.results || []).filter((poi: PoiResult) => !usedIds.has(poi.id))
-            : [];
-        const multimodalExtras =
-          multimodalData.status === 'fulfilled'
-            ? convertLegacyResults(multimodalData.value || []).filter((poi) => !usedIds.has(poi.id))
-            : [];
-        const mergedExtras = [...semanticExtras, ...multimodalExtras].filter(
-          (poi, index, items) => items.findIndex((item) => item.id === poi.id) === index,
-        );
-
-        setItinerary(nextItinerary);
-        setSavedRouteSummary(null);
-        if (weatherData.status === 'fulfilled') setWeather(weatherData.value);
-        setPoiResults(mergedExtras);
-        recordFeedback('agent_run_traveler', {
-          itinerarySize: nextItinerary.length,
-          extraSize: mergedExtras.length,
-          multimodalSize: multimodalExtras.length,
-          hasImage: Boolean(imageFile),
-        });
-      } else {
-        const canRunBusiness = await requireAuthFor(
-          language === 'vi'
-            ? 'Đăng nhập để chạy phân tích vị trí kinh doanh.'
-            : 'Sign in to run business location analysis.',
-        );
-        if (!canRunBusiness) return;
-        const data = await apiClient.post('/api/agent/business-insight', {
-          concept: query,
-          limit: 5,
-          language,
-        });
-        setBusinessAreas(data.areas || []);
-        recordFeedback('agent_run_business_insight', {
-          areaSize: data.areas?.length || 0,
-          guardrails: data.guardrails,
-        });
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Không thể gọi agent.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const removeFromItinerary = (poiId: string) => {
-    if (!user) {
-      requireAuthFor(
-        language === 'vi'
-          ? 'Đăng nhập để sửa lịch trình và ghi tín hiệu học.'
-          : 'Sign in to edit itineraries and record learning signals.',
-      );
-      return;
-    }
-    const removed = itinerary.find((item) => item.poi.id === poiId)?.poi;
-    setSavedRouteSummary(null);
-    setItinerary((items) =>
-      items.filter((item) => item.poi.id !== poiId).map((item, index) => ({ ...item, order: index + 1 })),
-    );
-    if (removed) {
-      setPoiResults((items) => [removed, ...items.filter((poi) => poi.id !== removed.id)]);
-      recordFeedback('remove_from_itinerary', { poiId });
-    }
-  };
-
-  const addPoiToItinerary = (poi: PoiResult) => {
-    if (!user) {
-      requireAuthFor(
-        language === 'vi'
-          ? 'Đăng nhập để thêm POI vào lịch trình và ghi tín hiệu học.'
-          : 'Sign in to add POIs to an itinerary and record learning signals.',
-      );
-      return;
-    }
-    if (itinerary.some((item) => item.poi.id === poi.id)) return;
-    setSavedRouteSummary(null);
-    setItinerary((items) => [
-      ...items,
-      {
-        order: items.length + 1,
-        poi,
-        suggestedStayMinutes: 55,
-        reason: language === 'vi' ? 'Người dùng thêm vào lịch trình.' : 'Added by the user.',
-      },
-    ]);
-    setPoiResults((items) => items.filter((item) => item.id !== poi.id));
-    recordFeedback('add_to_itinerary', { poiId: poi.id, category: poi.category });
-    void incrementPoiCounter(poi.id, 'timesAddedToItinerary');
   };
 
   const currentTripPayload = () => ({
@@ -1569,14 +1180,14 @@ export default function UrbanAgentPage() {
     excludedPoiIds: excludePoiIds,
     request: tripRequestBody(),
     preview: activeTripPreview,
-    itinerary,
+    itinerary: activeTripPreview ? previewToItinerary(activeTripPreview) : [],
     warnings: activeTripPreview?.warnings || [],
     status: 'saved',
     needsReplan: tripPreviewDirty,
   });
 
   const saveCurrentItinerary = async () => {
-    if (!itinerary.length && !activeTripPreview?.stops.length) return;
+    if (!activeTripPreview?.stops.length) return;
     if (!user) {
       setSaveMessage(language === 'vi' ? 'Đăng nhập để lưu lịch trình' : 'Sign in to save this itinerary');
       return;
@@ -1628,47 +1239,14 @@ export default function UrbanAgentPage() {
         const preview = renumberTripPreview(loaded.preview);
         setTripPreview(preview);
         setEditableTripPreview(preview);
-        setItinerary(previewToItinerary(preview));
-        setPoiResults(preview.stops.map((stop, index) => poiFromV2({ poi: stop.poi, reason: stop.reason }, index)));
         setSelectedPreviewDay(preview.days[0]?.dayNumber || 1);
         setSelectedPreviewStopId(preview.stops[0]?.stopId || '');
-        setSavedRouteSummary({
-          totalDistanceKm: preview.routeSummary?.totalDistanceKm ?? undefined,
-          totalDurationMinutes: preview.routeSummary?.totalTravelMinutes ?? undefined,
-          warnings: (preview.warnings || []).map((warning) => warning.code),
-        });
       } else {
-        const fallbackStops = loaded.stops || [];
-        setTripPreview(null);
-        setEditableTripPreview(null);
-        setItinerary(
-          fallbackStops.map((stop, index) => {
-        const snapshot = stop.poiSnapshot || {};
-        const snapshotLat = Number(snapshot.lat);
-        const snapshotLon = Number(snapshot.lon);
-        const hasCoordinates = Number.isFinite(snapshotLat) && Number.isFinite(snapshotLon);
-        return {
-          order: stop.order || index + 1,
-          poi: {
-            id: snapshot.id || stop.poiId,
-            title: snapshot.title || snapshot.name || `${t.stopLabel} ${index + 1}`,
-            name: snapshot.name || snapshot.title || `${t.stopLabel} ${index + 1}`,
-            address: snapshot.address,
-            category: snapshot.category || t.genericPlace,
-            district: snapshot.district || t.defaultDistrict,
-            lat: hasCoordinates ? snapshotLat : DA_NANG_CENTER.lat,
-            lon: hasCoordinates ? snapshotLon : DA_NANG_CENTER.lon,
-            hasCoordinates,
-            score: Number(snapshot.score) || 0,
-            rating: Number(snapshot.rating) || undefined,
-            reason: stop.reason || '',
-          },
-          suggestedStayMinutes: stop.stayMinutes,
-          reason: stop.reason,
-        };
-          }),
-        );
-        setSavedRouteSummary(null);
+        const fallbackPreview = savedTripFallbackPreview(loaded);
+        setTripPreview(fallbackPreview);
+        setEditableTripPreview(fallbackPreview);
+        setSelectedPreviewDay(fallbackPreview.days[0]?.dayNumber || 1);
+        setSelectedPreviewStopId(fallbackPreview.stops[0]?.stopId || '');
       }
       setTripPreviewDirty(Boolean(loaded.needsReplan));
       setTripEditMessage(
@@ -1703,238 +1281,23 @@ export default function UrbanAgentPage() {
     }
   };
 
-  const handleBookGrab = async (destination: PoiResult) => {
-    if (!openedSavedItineraryId) return;
-    if (destination.hasCoordinates === false || !isFiniteCoord(destination.lat, destination.lon)) {
-      setSaveMessage(t.grabNoDestination);
-      return;
-    }
-    setBookingGrabId(destination.id);
-    setSaveMessage('');
-    const dropoff = {
-      dropoffLat: destination.lat,
-      dropoffLng: destination.lon,
-      dropoffName: destination.name || destination.title,
-      dropoffAddress: destination.address || destination.district || destination.title,
-    };
-    try {
-      const pickup = await getCurrentLocationOnce(language);
-      setCurrentLocation({ lat: pickup.lat, lon: pickup.lng });
-      openGrabBooking({
-        pickupLat: pickup.lat,
-        pickupLng: pickup.lng,
-        ...dropoff,
-      });
-      recordFeedback('grab_booking_opened', {
-        itineraryId: openedSavedItineraryId,
-        poiId: destination.id,
-        category: destination.category,
-        pickupSource: 'browser_gps',
-      });
-    } catch (error) {
-      openGrabBooking(dropoff);
-      setSaveMessage(t.grabPickupInApp);
-      recordFeedback('grab_booking_opened', {
-        itineraryId: openedSavedItineraryId,
-        poiId: destination.id,
-        category: destination.category,
-        pickupSource: 'grab_app',
-        gpsError: error instanceof Error ? error.message : t.grabGpsFailed,
-      });
-    } finally {
-      setBookingGrabId('');
-    }
-  };
-
-  const loadExpertRoute = async (poi: PoiResult) => {
-    const canRoute = await requireAuthFor(
-      language === 'vi'
-        ? 'Đăng nhập để dùng route chuyên gia và ghi agentEvents.'
-        : 'Sign in to use expert routing and record agentEvents.',
-    );
-    if (!canRoute) return;
-    if (!isFiniteCoord(poi.lat, poi.lon)) {
-      setError('Selected place does not have valid coordinates for routing.');
-      return;
-    }
-    setRouteLoadingId(poi.id);
-    setSelectedRoutePoi(poi);
-    setRouteRoutes([]);
-    setRouteBounds(null);
-    setSelectedRouteIndex(0);
-    setRouteStops([]);
-    try {
-      const origin = await getCurrentLocationOnce(language).catch(() => ({ lat: DA_NANG_CENTER.lat, lng: DA_NANG_CENTER.lon }));
-      setCurrentLocation({ lat: origin.lat, lon: origin.lng });
-      setRouteOrigin([origin.lat, origin.lng]);
-      lastReroutePositionRef.current = origin;
-      lastRerouteAtRef.current = Date.now();
-      const data = await apiClient.post('/api/route', {
-        origin,
-        destination: { lat: poi.lat, lng: poi.lon },
-      });
-      void incrementPoiCounter(poi.id, 'timesRouted');
-      const routes = (data.routes || [data]).map(normalizeRouteResult).filter(Boolean) as RouteResult[];
-      if (!routes.length) {
-        throw new Error('No valid route geometry returned for this place.');
-      }
-      const bestRoute = routes[0];
-      setRouteStops([poi]);
-      setRouteRoutes(routes);
-      const coords = routeCoordinates(bestRoute);
-      if (coords.length) setRouteBounds(L.latLngBounds(coords));
-      setRouteModalOpen(true);
-      recordFeedback('route_requested', { poiId: poi.id, category: poi.category });
-    } catch (err: any) {
-      setRouteModalOpen(false);
-      setError(err?.message || 'Không thể tính route bằng hệ chuyên gia.');
-    } finally {
-      setRouteLoadingId('');
-    }
-  };
-
-  const loadFullItineraryRoute = async () => {
-    if (!itinerary.length) return;
-    const canRoute = await requireAuthFor(
-      language === 'vi'
-        ? 'Đăng nhập để xem route chuyên sâu cho toàn bộ lịch trình.'
-        : 'Sign in to inspect the full expert itinerary route.',
-    );
-    if (!canRoute) return;
-    setSelectedRoutePoi(null);
-    setRouteStops([]);
-    setRouteRoutes([]);
-    setRouteBounds(null);
-    setSelectedRouteIndex(0);
-    setRouteLoadingId('full-itinerary');
-    try {
-      const segments: RouteResult[] = [];
-      let origin = await getCurrentLocationOnce(language);
-      setCurrentLocation({ lat: origin.lat, lon: origin.lng });
-      setRouteOrigin([origin.lat, origin.lng]);
-      lastReroutePositionRef.current = origin;
-      lastRerouteAtRef.current = Date.now();
-      for (const item of itinerary) {
-        if (!isFiniteCoord(item.poi.lat, item.poi.lon)) continue;
-        const data = await apiClient.post('/api/route', {
-          origin,
-          destination: { lat: item.poi.lat, lng: item.poi.lon },
-        });
-        void incrementPoiCounter(item.poi.id, 'timesRouted');
-        const best = normalizeRouteResult(data.routes?.[0] || data);
-        if (best && routeCoordinates(best).length) segments.push(best);
-        origin = { lat: item.poi.lat, lng: item.poi.lon };
-      }
-      if (!segments.length) {
-        throw new Error('No valid route geometry returned for the itinerary.');
-      }
-      const stops = itinerary.map((item) => item.poi).filter((poi) => isFiniteCoord(poi.lat, poi.lon));
-      setRouteStops(stops);
-      setRouteRoutes(segments);
-      const allCoords = segments.flatMap((segment) => routeCoordinates(segment));
-      if (allCoords.length) setRouteBounds(L.latLngBounds(allCoords));
-      setRouteModalOpen(true);
-      recordFeedback('full_itinerary_route_requested', { stopCount: itinerary.length });
-    } catch (err: any) {
-      setError(err?.message || 'Không thể tính toàn bộ lộ trình.');
-    } finally {
-      setRouteLoadingId('');
-    }
-  };
-
-  useEffect(() => {
-    const hasIllustrativeRoute = routeRoutes.some((route) => route.illustrative);
-    if (!routeModalOpen || !navigator.geolocation || !routeStops.length || hasIllustrativeRoute) {
-      if (routeWatchIdRef.current !== null && navigator.geolocation) {
-        navigator.geolocation.clearWatch(routeWatchIdRef.current);
-      }
-      routeWatchIdRef.current = null;
-      setLiveRouteEnabled(false);
-      return undefined;
-    }
-
-    setRouteGpsError('');
-    setLiveRouteEnabled(true);
-    routeWatchIdRef.current = navigator.geolocation.watchPosition(
-      async (position) => {
-        const next = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        };
-        setRouteOrigin([next.lat, next.lng]);
-        setCurrentLocation({ lat: next.lat, lon: next.lng });
-        setRouteGpsAccuracy(position.coords.accuracy);
-        setRouteGpsError('');
-
-        if (position.coords.accuracy > ROUTE_MAX_GPS_ACCURACY_M) return;
-        const previous = lastReroutePositionRef.current;
-        const movedMeters = previous ? haversineMeters(previous, next) : Number.POSITIVE_INFINITY;
-        const enoughTimePassed = Date.now() - lastRerouteAtRef.current >= ROUTE_REROUTE_MIN_INTERVAL_MS;
-        if (movedMeters < ROUTE_REROUTE_DISTANCE_M || !enoughTimePassed || rerouteInFlightRef.current) return;
-
-        const target = selectedRoutePoi || routeStops[0];
-        if (!target || !isFiniteCoord(target.lat, target.lon)) return;
-        rerouteInFlightRef.current = true;
-        setRouteLoadingId('live-reroute');
-        try {
-          const data = await apiClient.post('/api/route', {
-            origin: next,
-            destination: { lat: target.lat, lng: target.lon },
-          });
-          const recalculated = (data.routes || [data]).map(normalizeRouteResult).filter(Boolean) as RouteResult[];
-          if (!recalculated.length) return;
-
-          if (selectedRoutePoi) {
-            setRouteRoutes(recalculated);
-            setSelectedRouteIndex(0);
-          } else {
-            setRouteRoutes((existing) => [recalculated[0], ...existing.slice(1)]);
-          }
-          const coords = routeCoordinates(recalculated[0]);
-          if (coords.length) setRouteBounds(L.latLngBounds([[next.lat, next.lng], ...coords]));
-          lastReroutePositionRef.current = next;
-          lastRerouteAtRef.current = Date.now();
-          void recordFeedback('route_recalculated', {
-            targetPoiId: target.id,
-            movedMeters: Math.round(movedMeters),
-            accuracy: Math.round(position.coords.accuracy),
-          });
-        } catch (routeError) {
-          setRouteGpsError(routeError instanceof Error ? routeError.message : 'Không thể cập nhật route real-time.');
-        } finally {
-          rerouteInFlightRef.current = false;
-          setRouteLoadingId('');
-        }
-      },
-      (gpsError) => {
-        setRouteGpsError(gpsError.message || 'Không thể theo dõi GPS real-time.');
-        setLiveRouteEnabled(false);
-      },
-      { enableHighAccuracy: true, maximumAge: 3000, timeout: 12000 },
-    );
-
-    return () => {
-      if (routeWatchIdRef.current !== null) navigator.geolocation.clearWatch(routeWatchIdRef.current);
-      routeWatchIdRef.current = null;
-      rerouteInFlightRef.current = false;
-    };
-  }, [routeModalOpen, routeRoutes, routeStops, selectedRoutePoi]);
-
-  const itineraryMoveMinutes = itinerary.reduce((sum, item) => sum + (item.travelFromPrevious?.estimatedMinutes || 0), 0);
-  const totalMoveMinutes = itineraryMoveMinutes || Number(savedRouteSummary?.totalDurationMinutes || 0);
+  const itineraryMoveMinutes = (activeTripPreview?.stops || []).reduce((sum, stop) => (
+    sum + Number(stop.travelFromPrevious?.travelDurationMinutes ?? stop.travelFromPrevious?.estimatedMinutes ?? 0)
+  ), 0);
+  const totalMoveMinutes = Number(activeTripPreview?.routeSummary?.totalTravelMinutes ?? itineraryMoveMinutes);
   const weatherText = formatCurrentWeather(weather, t.waiting, language);
 
   return (
     <div className="customer-agent min-h-full space-y-6 text-slate-700">
-      <section className="rounded-2xl border border-cyan-400/20 bg-slate-950/80 p-6 shadow-2xl shadow-cyan-950/20">
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-sm text-cyan-200">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-800">
               <Sparkles size={16} />
               {t.heroBadge}
             </div>
-            <h1 className="text-3xl font-bold tracking-tight text-white md:text-4xl">{t.title}</h1>
-            <p className="mt-3 text-base leading-7 text-slate-300">{t.subtitle}</p>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-950 md:text-4xl">{t.title}</h1>
+            <p className="mt-3 text-base leading-7 text-slate-600">{t.subtitle}</p>
           </div>
 
           <div className="inline-flex min-w-[260px] items-center justify-center gap-2 rounded-xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-800">
@@ -1944,26 +1307,26 @@ export default function UrbanAgentPage() {
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[420px_1fr]">
-        <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+      <section className="grid items-start gap-6 xl:grid-cols-[400px_minmax(0,1fr)]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-4">
           <div className="mb-4 flex items-start gap-3">
-            <div className="rounded-xl bg-[#0B3B60]/10 p-3 text-[#0B3B60]">
+            <div className="rounded-xl bg-teal-50 p-3 text-teal-800">
               <Compass />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-white">Lên lịch trình Đà Nẵng</h2>
-              <p className="text-sm leading-6 text-slate-400">
+              <h2 className="text-xl font-semibold text-slate-950">Lên lịch trình Đà Nẵng</h2>
+              <p className="text-sm leading-6 text-slate-600">
                 Chọn ngày đi, thời gian rảnh và sở thích; UrbanAgent sẽ gợi ý điểm phù hợp rồi xếp thành lịch trình có thể theo được.
               </p>
             </div>
           </div>
 
-          <label className="mb-2 block text-sm font-medium text-slate-300">Bạn muốn chuyến đi như thế nào?</label>
+          <label className="mb-2 block text-sm font-medium text-slate-700">Bạn muốn chuyến đi như thế nào?</label>
           <textarea
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Ví dụ: cafe yên tĩnh gần biển, món địa phương, một vài điểm chụp ảnh nhẹ nhàng"
-            className="min-h-[150px] w-full resize-none rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+            className="min-h-[140px] w-full resize-none rounded-xl border border-slate-300 bg-white p-4 text-sm leading-6 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
           />
           <div className="mt-3 flex flex-wrap gap-2">
             {TRAVEL_INTERESTS.map((interest) => {
@@ -1975,8 +1338,8 @@ export default function UrbanAgentPage() {
                   onClick={() => toggleInterest(interest)}
                   className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                     selected
-                      ? 'border-[#E76F51] bg-[#E76F51]/15 text-[#FFD8CC]'
-                      : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-cyan-300 hover:text-cyan-100'
+                      ? 'border-teal-600 bg-teal-50 text-teal-800'
+                      : 'border-slate-300 bg-white text-slate-600 hover:border-teal-400 hover:text-teal-800'
                   }`}
                 >
                   {interest}
@@ -1988,11 +1351,11 @@ export default function UrbanAgentPage() {
           {role === 'traveler' && (
             <div className="mt-4 space-y-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-300">{t.transport}</label>
+                <label className="mb-2 block text-sm font-medium text-slate-700">{t.transport}</label>
                 <select
                   value={transport}
                   onChange={(event) => setTransport(event.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
                 >
                   <option value="motorbike">{t.motorbike}</option>
                   <option value="car">{t.car}</option>
@@ -2000,49 +1363,35 @@ export default function UrbanAgentPage() {
                 </select>
               </div>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-300">{t.tripDuration}</label>
-                <select
-                  value={tripDurationMinutes}
-                  onChange={(event) => setTripDurationMinutes(Number(event.target.value))}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
-                >
-                  <option value={120}>{t.hours2}</option>
-                  <option value={180}>{t.hours3}</option>
-                  <option value={240}>{t.hours4}</option>
-                  <option value={360}>{t.hours6}</option>
-                </select>
-              </div>
-
-              <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
-                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-cyan-100">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
                   <CalendarDays size={17} />
                   Thông tin chuyến đi
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-slate-400">Điểm đến</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-600">Điểm đến</span>
                     <input
                       value="Đà Nẵng"
                       readOnly
-                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300 outline-none"
+                      className="w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600 outline-none"
                     />
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-slate-400">Ngày bắt đầu</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-600">Ngày bắt đầu</span>
                     <input
                       type="date"
                       value={tripStartDate}
                       onChange={(event) => setTripStartDate(event.target.value)}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-600"
                     />
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-slate-400">Số ngày</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-600">Số ngày</span>
                     <select
                       value={tripDayCount}
                       onChange={(event) => setTripDayCount(Number(event.target.value))}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-600"
                     >
                       {[1, 2, 3, 4, 5, 6, 7].map((value) => (
                         <option key={value} value={value}>{value} ngày</option>
@@ -2050,29 +1399,29 @@ export default function UrbanAgentPage() {
                     </select>
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-slate-400">Giờ bắt đầu mặc định</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-600">Giờ bắt đầu mặc định</span>
                     <input
                       type="time"
                       value={defaultStartTime}
                       onChange={(event) => setDefaultStartTime(event.target.value)}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-600"
                     />
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-slate-400">Giờ kết thúc mặc định</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-600">Giờ kết thúc mặc định</span>
                     <input
                       type="time"
                       value={defaultEndTime}
                       onChange={(event) => setDefaultEndTime(event.target.value)}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-600"
                     />
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-slate-400">Nhịp đi</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-600">Nhịp đi</span>
                     <select
                       value={pace}
                       onChange={(event) => setPace(event.target.value)}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-600"
                     >
                       <option value="relaxed">Thong thả</option>
                       <option value="balanced">Cân bằng</option>
@@ -2080,11 +1429,11 @@ export default function UrbanAgentPage() {
                     </select>
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-slate-400">Số điểm tối đa mỗi ngày</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-600">Số điểm tối đa mỗi ngày</span>
                     <select
                       value={maxStopsPerDay}
                       onChange={(event) => setMaxStopsPerDay(Number(event.target.value))}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-600"
                     >
                       {[1, 2, 3, 4, 5, 6].map((value) => (
                         <option key={value} value={value}>{value}</option>
@@ -2093,12 +1442,12 @@ export default function UrbanAgentPage() {
                   </label>
                 </div>
                 <div className="mt-3 space-y-2">
-                  <div className="text-xs font-semibold text-cyan-100">Thời gian rảnh theo ngày</div>
+                  <div className="text-xs font-semibold text-slate-800">Thời gian rảnh theo ngày</div>
                   {tripCalendarDays.map((window) => (
-                    <div key={window.dayNumber} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 sm:grid-cols-[1fr_92px_92px] sm:items-center">
-                      <div className="min-w-0 text-xs text-slate-300">
-                        <span className="font-semibold text-white">{formatVietnameseDate(window.date)}</span>
-                        <span className="ml-2 text-slate-400">Ngày {window.dayNumber}</span>
+                    <div key={window.dayNumber} className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-[1fr_92px_92px] sm:items-center">
+                      <div className="min-w-0 text-xs text-slate-700">
+                        <span className="font-semibold text-slate-950">{formatVietnameseDate(window.date)}</span>
+                        <span className="ml-2 text-slate-500">Ngày {window.dayNumber}</span>
                       </div>
                       <input
                         type="time"
@@ -2106,7 +1455,7 @@ export default function UrbanAgentPage() {
                         onChange={(event) => setTripDayWindows((items) => items.map((item) => (
                           item.dayNumber === window.dayNumber ? { ...item, startTime: event.target.value } : item
                         )))}
-                        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs text-slate-100 outline-none focus:border-cyan-400"
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs text-slate-900 outline-none focus:border-teal-600"
                       />
                       <input
                         type="time"
@@ -2114,110 +1463,51 @@ export default function UrbanAgentPage() {
                         onChange={(event) => setTripDayWindows((items) => items.map((item) => (
                           item.dayNumber === window.dayNumber ? { ...item, endTime: event.target.value } : item
                         )))}
-                        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs text-slate-100 outline-none focus:border-cyan-400"
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs text-slate-900 outline-none focus:border-teal-600"
                       />
                     </div>
                   ))}
                 </div>
                 {travelerValidationError && (
-                  <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
+                  <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
                     <AlertTriangle className="mt-0.5 shrink-0" size={15} />
                     {travelerValidationError}
                   </div>
                 )}
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={loadTravelerRecommendations}
-                    disabled={recommendationLoading || Boolean(travelerValidationError)}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {recommendationLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-                    Gợi ý điểm
-                  </button>
+                <div className="mt-4">
                   <button
                     type="button"
                     onClick={createTripPreview}
                     disabled={previewLoading || tripLifecycleLoading || Boolean(travelerValidationError)}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#E76F51] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#d85f44] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {previewLoading ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
-                    {activeTripPreview ? 'Tạo lại lịch trình' : 'Tạo lịch trình'}
+                    {previewLoading ? 'Đang cập nhật lịch trình...' : activeTripPreview ? 'Cập nhật lịch trình' : 'Tạo lịch trình'}
                   </button>
                 </div>
               </div>
-
-              <details className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
-                <summary className="cursor-pointer font-semibold text-slate-100">Công cụ tìm thêm nâng cao</summary>
-                <div className="mt-4 space-y-3">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-300">{t.multimodalSearch}</label>
-                    <label className="flex min-h-[92px] cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-700 bg-slate-950 p-3 text-sm text-slate-400 transition hover:border-cyan-400 hover:bg-slate-800">
-                      {imagePreview ? (
-                        <img src={imagePreview} alt="Preview" className="h-16 w-16 rounded-lg object-cover" />
-                      ) : (
-                        <span className="rounded-xl bg-slate-800 p-3 text-cyan-200">
-                          <UploadCloud size={22} />
-                        </span>
-                      )}
-                      <span>
-                        <span className="block font-medium text-slate-200">
-                          {imagePreview ? t.changeImage : t.chooseImage}
-                        </span>
-                        <span>{t.imageHint}</span>
-                      </span>
-                      <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
-                    </label>
-                  </div>
-                  <select
-                    value={modelVersion}
-                    onChange={(event) => setModelVersion(event.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
-                  >
-                    <option value="v4">Tìm kiếm đa phương thức tốt nhất</option>
-                    <option value="v3">Tìm kiếm văn bản + ngữ cảnh</option>
-                    <option value="v2">Tìm kiếm cơ bản</option>
-                    <option value="v1">Tìm kiếm legacy</option>
-                  </select>
-                </div>
-              </details>
             </div>
           )}
 
-          <button
-            onClick={runAgent}
-            disabled={loading}
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-3 font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
-            Tìm thêm điểm phù hợp
-          </button>
-
           {error && (
-            <div className="mt-4 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">
+            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
               {error}
             </div>
           )}
 
           {!user && (
-            <div className="mt-4 rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-3 text-sm leading-6 text-cyan-100">
+            <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm leading-6 text-sky-800">
               {language === 'vi'
-                ? 'Chưa đăng nhập: bạn vẫn có thể khám phá POI cơ bản. Đăng nhập để tạo/lưu lịch trình, dùng route chuyên gia, gửi phản hồi và phân tích seller.'
-                : 'Signed out: basic POI exploration still works. Sign in for saved itineraries, expert routes, feedback and seller analysis.'}
+                ? 'Bạn có thể tạo và chỉnh lịch trình ngay. Đăng nhập khi muốn lưu chuyến đi vào tài khoản.'
+                : 'You can create and edit a trip now. Sign in when you want to save it to your account.'}
             </div>
           )}
-
-          {/* <div className="mt-5 rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm leading-6 text-slate-400">
-            <strong className="text-slate-200">Learning loop:</strong> {t.principle}
-          </div> */}
-
-          <AgentLearningPanel status={trainingStatus} />
         </div>
 
         {role === 'traveler' ? (
           <div className="space-y-6">
             <div className="grid gap-4 md:grid-cols-3">
-              <MetricCard icon={<MapPin />} label={t.inPlan} value={itinerary.length || 0} />
+              <MetricCard icon={<MapPin />} label={t.inPlan} value={activeTripPreview?.stops.length || 0} />
               <MetricCard
                 icon={<Route />}
                 label={t.totalMove}
@@ -2230,80 +1520,75 @@ export default function UrbanAgentPage() {
               />
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+            <TravelerRecommendationPanel
+              candidates={recommendationCandidates}
+              loading={recommendationLoading}
+              requested={recommendationsRequested}
+              error={recommendationError}
+              disabled={tripLifecycleLoading || Boolean(travelerValidationError)}
+              onRefresh={loadTravelerRecommendations}
+              onInclude={(poiId) => void includeRecommendationPoi(poiId)}
+              onExclude={(poiId) => void excludeRecommendationPoi(poiId)}
+              onRestore={removeTripConstraintPoi}
+              onInspectMap={openRecommendationMap}
+            />
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#2A9D8F]/30 bg-[#2A9D8F]/10 px-3 py-1 text-xs font-semibold text-[#BFEDE6]">
+                  <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800">
                     <CheckCircle2 size={14} />
-                    UrbanAgent Travel
+                    Kế hoạch chuyến đi
                   </div>
-                  <h2 className="text-xl font-semibold text-white">Lịch trình gợi ý</h2>
-                  <p className="text-sm text-slate-400">
-                    Xem lịch theo từng ngày, chọn điểm trên timeline hoặc bản đồ để tập trung vào cùng một stop.
+                  <h2 className="text-xl font-semibold text-slate-950">Lịch trình của bạn</h2>
+                  <p className="text-sm leading-6 text-slate-600">
+                    Xem theo từng ngày và chọn cùng một điểm trên lịch trình hoặc bản đồ.
                   </p>
                 </div>
-                {travelerRequestId && <span className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-400">Mã yêu cầu {travelerRequestId}</span>}
+                <div className="flex flex-wrap gap-2">
+                  {activeTripPreview && (
+                    <button
+                      type="button"
+                      onClick={saveCurrentItinerary}
+                      disabled={savingItinerary}
+                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-teal-700 bg-white px-3 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {savingItinerary ? <Loader2 className="animate-spin" size={15} /> : <Save size={15} />}
+                      {openedSavedItineraryId ? t.saveChanges : t.saveItinerary}
+                    </button>
+                  )}
+                  {activeTripPreview && (
+                    <button
+                      type="button"
+                      onClick={() => openPreviewDayMap(selectedPreviewDay)}
+                      disabled={!activeTripPreview.stops.some((stop) => stop.dayNumber === selectedPreviewDay)}
+                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-500 hover:text-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Map size={15} />
+                      Mở bản đồ lớn
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {travelerRecommendations.length > 0 && (
-                <div className="mb-4 grid gap-3 md:grid-cols-2">
-                  {travelerRecommendations.slice(0, 4).map((item, index) => {
-                    const poi = poiFromV2(item, index);
-                    const isIncluded = mustIncludePoiIds.includes(poi.id);
-                    const isExcluded = excludePoiIds.includes(poi.id);
-                    const isScheduled = scheduledPoiIds.has(poi.id);
-                    const addDisabled = tripLifecycleLoading || isIncluded || isExcluded || isScheduled;
-                    return (
-                      <div key={poi.id} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <h3 className="font-semibold text-white">{poi.title}</h3>
-                            <p className="text-xs text-slate-400">{poi.category}</p>
-                          </div>
-                          <span className="rounded-full bg-[#F4EDE2] px-2 py-1 text-xs font-semibold text-[#0B3B60]">
-                            Gợi ý {index + 1}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm leading-5 text-slate-300">{item.reason}</p>
-                        {Boolean(item.reasonCodes?.length) && (
-                          <details className="mt-2 text-xs text-slate-400">
-                            <summary className="cursor-pointer">Xem tín hiệu phù hợp</summary>
-                            <p className="mt-1 text-cyan-200">{item.reasonCodes?.join(', ')}</p>
-                          </details>
-                        )}
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => includeRecommendationPoi(poi.id)}
-                            disabled={addDisabled}
-                            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
-                              isIncluded || isScheduled
-                                ? 'border-emerald-300/40 bg-emerald-300/10 text-emerald-100'
-                                : isExcluded
-                                  ? 'border-rose-300/40 bg-rose-300/10 text-rose-100'
-                                : 'border-slate-700 text-slate-200 hover:border-emerald-300 hover:text-emerald-100'
-                            }`}
-                          >
-                            <Plus size={13} />
-                            {isScheduled ? 'Đã trong lịch' : isExcluded ? 'Đã loại' : isIncluded ? 'Đã thêm' : 'Thêm vào lịch'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => excludeRecommendationPoi(poi.id)}
-                            disabled={tripLifecycleLoading || isExcluded}
-                            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
-                              isExcluded
-                                ? 'border-rose-300/40 bg-rose-300/10 text-rose-100'
-                                : 'border-slate-700 text-slate-200 hover:border-rose-300 hover:text-rose-100'
-                            }`}
-                          >
-                            <X size={13} />
-                            {isExcluded ? 'Đã loại' : isScheduled ? 'Bỏ khỏi lịch' : 'Loại khỏi lịch'}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+              {saveMessage && (
+                <div className="mb-4 flex flex-col gap-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 sm:flex-row sm:items-center sm:justify-between">
+                  <span>{saveMessage}</span>
+                  {!user && saveMessage.toLowerCase().includes(language === 'vi' ? 'đăng nhập' : 'sign in') && firebaseReady && (
+                    <button
+                      type="button"
+                      onClick={() => void signInWithGoogle()}
+                      className="inline-flex items-center justify-center rounded-lg bg-teal-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-teal-800"
+                    >
+                      {language === 'vi' ? 'Đăng nhập' : 'Sign in'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {previewError && (
+                <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                  {previewError}
                 </div>
               )}
 
@@ -2314,7 +1599,7 @@ export default function UrbanAgentPage() {
                       key={`include-${poiId}`}
                       type="button"
                       onClick={() => removeTripConstraintPoi(poiId)}
-                      className="inline-flex items-center gap-1 rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 font-semibold text-emerald-100"
+                      className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-emerald-800"
                     >
                       Thêm {tripConstraintLabel(poiId)}
                       <X size={12} />
@@ -2325,7 +1610,7 @@ export default function UrbanAgentPage() {
                       key={`exclude-${poiId}`}
                       type="button"
                       onClick={() => removeTripConstraintPoi(poiId)}
-                      className="inline-flex items-center gap-1 rounded-full border border-rose-300/30 bg-rose-300/10 px-3 py-1 font-semibold text-rose-100"
+                      className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 font-semibold text-rose-700"
                     >
                       Loại {tripConstraintLabel(poiId)}
                       <X size={12} />
@@ -2337,41 +1622,36 @@ export default function UrbanAgentPage() {
               {activeTripPreview ? (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 font-semibold text-emerald-100">
-                      {activeTripPreview.feasibilityStatus}
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-emerald-800">
+                      {humanizeFeasibility(activeTripPreview.feasibilityStatus)}
                     </span>
-                    <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-700">
                       {activeTripPreview.stops.length} điểm dừng
                     </span>
-                    <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-700">
                       Thời gian di chuyển ước tính: {activeTripPreview.routeSummary?.totalTravelMinutes ?? '--'} phút
                     </span>
-                    {(activeTripPreview.warnings || []).slice(0, 3).map((warning, warningIndex) => (
-                      <span key={`${warning.code}-${warningIndex}`} className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-amber-100">
-                        {warning.code}
+                    {uniquePresentationLabels(
+                      (activeTripPreview.warnings || []).map((warning) => warning.code),
+                      humanizeWarning,
+                    ).slice(0, 4).map((warningLabel) => (
+                      <span key={warningLabel} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-800">
+                        {warningLabel}
                       </span>
                     ))}
-                    <button
-                      type="button"
-                      onClick={saveCurrentItinerary}
-                      disabled={savingItinerary}
-                      className="inline-flex items-center justify-center gap-2 rounded-full border border-cyan-300/40 bg-cyan-300/10 px-3 py-1 font-semibold text-cyan-100 transition hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {savingItinerary ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
-                      {openedSavedItineraryId ? t.saveChanges : t.saveItinerary}
-                    </button>
+                    {travelerRequestId && <span className="text-slate-400">Mã yêu cầu {travelerRequestId}</span>}
                   </div>
                   {tripPreviewDirty && (
-                    <div className="flex flex-col gap-3 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100 md:flex-row md:items-center md:justify-between">
+                    <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 md:flex-row md:items-center md:justify-between">
                       <span>{tripEditMessage || 'Bạn đã thay đổi lịch trình. Hãy tạo lại lịch trình để hệ thống tính toán lại.'}</span>
                       <button
                         type="button"
                         onClick={createTripPreview}
                         disabled={previewLoading || tripLifecycleLoading || Boolean(travelerValidationError)}
-                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#E76F51] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#d85f44] disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {previewLoading ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
-                        Tạo lại lịch trình
+                        {previewLoading ? 'Đang cập nhật...' : 'Cập nhật lịch trình'}
                       </button>
                     </div>
                   )}
@@ -2384,8 +1664,8 @@ export default function UrbanAgentPage() {
                         onClick={() => selectPreviewDay(day.dayNumber)}
                         className={`shrink-0 rounded-xl border px-3 py-2 text-left text-xs transition ${
                           selectedPreviewDay === day.dayNumber
-                            ? 'border-cyan-300 bg-cyan-300/10 text-cyan-100'
-                            : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-600'
+                            ? 'border-teal-600 bg-teal-50 text-teal-800'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-teal-300'
                         }`}
                       >
                         <span className="block font-semibold">{formatVietnameseDate(day.date || addDaysIso(tripStartDate, day.dayNumber - 1))}</span>
@@ -2400,21 +1680,21 @@ export default function UrbanAgentPage() {
                       .filter((stop) => stop.dayNumber === day.dayNumber)
                       .sort((a, b) => a.order - b.order);
                     return (
-                      <div key={day.dayNumber} className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+                      <div key={day.dayNumber} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                           <div>
-                            <h3 className="text-lg font-semibold text-white">
+                            <h3 className="text-lg font-semibold text-slate-950">
                               {formatVietnameseDate(day.date || addDaysIso(tripStartDate, day.dayNumber - 1))}
                             </h3>
-                            <p className="text-sm text-slate-400">
-                              {day.dailyWindow ? `${day.dailyWindow.start} - ${day.dailyWindow.end}` : 'Khung giờ chưa biết'} · {day.feasibilityStatus}
+                            <p className="text-sm text-slate-600">
+                              {day.dailyWindow ? `${day.dailyWindow.start} - ${day.dailyWindow.end}` : 'Khung giờ chưa biết'} · {humanizeFeasibility(day.feasibilityStatus)}
                             </p>
                           </div>
                           <button
                             type="button"
                             onClick={() => openPreviewDayMap(day.dayNumber)}
                             disabled={!dayStops.length}
-                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-purple-300/40 bg-purple-300/10 px-4 py-2 text-sm font-semibold text-purple-100 transition hover:bg-purple-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-500 hover:text-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <Route size={16} />
                             Mở bản đồ lớn
@@ -2441,28 +1721,28 @@ export default function UrbanAgentPage() {
                                   }}
                                   className={`trip-preview-stop-card w-full cursor-pointer rounded-xl border p-4 text-left transition ${
                                     selected
-                                      ? 'border-[#E76F51] bg-[#E76F51]/10'
-                                      : 'border-slate-800 bg-slate-950/70 hover:border-slate-600'
+                                      ? 'border-teal-500 bg-teal-50 shadow-sm'
+                                      : 'border-slate-200 bg-white hover:border-teal-300'
                                   }`}
                                 >
                                   <div className="flex items-start justify-between gap-3">
                                     <div>
                                       <div className="flex flex-wrap items-center gap-2">
                                         <span className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${
-                                          selected ? 'bg-[#E76F51] text-white' : 'bg-cyan-400 text-slate-950'
+                                          selected ? 'bg-teal-700 text-white' : 'bg-sky-100 text-sky-900'
                                         }`}
                                         >
                                           {stop.order}
                                         </span>
-                                        <h4 className="font-semibold text-white">{poi.title}</h4>
+                                        <h4 className="font-semibold text-slate-950">{poi.title}</h4>
                                       </div>
-                                      <p className="mt-1 text-xs text-slate-400">{poi.category}</p>
+                                      <p className="mt-1 text-xs text-slate-500">{poi.category}</p>
                                     </div>
-                                    <span className="rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-300">
+                                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">
                                       {stop.arrivalTime || '--'} - {stop.departureTime || '--'}
                                     </span>
                                   </div>
-                                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
+                                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-700">
                                     <Badge icon={<Clock3 size={14} />}>{stop.durationMinutes} phút tham quan</Badge>
                                     <Badge icon={<Car size={14} />}>
                                       {travelKnown && typeof (leg?.travelDurationMinutes ?? leg?.estimatedMinutes) === 'number'
@@ -2473,15 +1753,15 @@ export default function UrbanAgentPage() {
                                       {travelKnown && typeof leg?.distanceKm === 'number' ? `${leg.distanceKm} km` : 'khoảng cách chưa rõ'}
                                     </Badge>
                                   </div>
-                                  <p className="mt-3 text-sm leading-6 text-slate-300">{stop.reason || poi.reason}</p>
+                                  <p className="mt-3 text-sm leading-6 text-slate-700">{stop.reason || poi.reason}</p>
                                   {Boolean(stop.reasonCodes?.length) && (
-                                    <details className="mt-2 text-xs text-slate-400">
+                                    <details className="mt-2 text-xs text-slate-600">
                                       <summary className="cursor-pointer">Tín hiệu phù hợp</summary>
-                                      <p className="mt-1 text-cyan-200">{stop.reasonCodes?.join(', ')}</p>
+                                      <p className="mt-1 text-teal-800">{uniquePresentationLabels(stop.reasonCodes || [], humanizeReasonCode).join(' · ')}</p>
                                     </details>
                                   )}
                                   {Boolean(stop.warnings?.length) && (
-                                    <p className="mt-2 text-xs text-amber-200">{stop.warnings?.join(', ')}</p>
+                                    <p className="mt-2 text-xs text-amber-800">{uniquePresentationLabels(stop.warnings || [], humanizeWarning).join(' · ')}</p>
                                   )}
                                   <div className="mt-3" onClick={(event) => event.stopPropagation()}>
                                     <TripPreviewStopActions
@@ -2517,126 +1797,28 @@ export default function UrbanAgentPage() {
               )}
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-xl font-semibold text-white">{t.itinerary}</h2>
-                  <span className="text-sm text-slate-400">{t.editable}</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={saveCurrentItinerary}
-                    disabled={(!itinerary.length && !activeTripPreview?.stops.length) || savingItinerary}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:border disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-600"
-                  >
-                    {savingItinerary ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                    {openedSavedItineraryId ? t.saveChanges : t.saveItinerary}
-                  </button>
-                  <button
-                    onClick={loadFullItineraryRoute}
-                    disabled={!itinerary.length || Boolean(routeLoadingId)}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-600"
-                  >
-                    {routeLoadingId === 'full-itinerary' ? <Loader2 className="animate-spin" size={16} /> : <Route size={16} />}
-                    {t.fullRoute}
-                  </button>
-                </div>
-              </div>
-              {saveMessage && (
-                <div className="mb-4 flex flex-col gap-3 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800 sm:flex-row sm:items-center sm:justify-between">
-                  <span>{saveMessage}</span>
-                  {!user && saveMessage.toLowerCase().includes(language === 'vi' ? 'đăng nhập' : 'sign in') && firebaseReady && (
-                    <button
-                      type="button"
-                      onClick={() => void signInWithGoogle()}
-                      className="inline-flex items-center justify-center rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-cyan-800"
-                    >
-                      {language === 'vi' ? 'Đăng nhập' : 'Sign in'}
-                    </button>
-                  )}
-                </div>
-              )}
-              <div className="space-y-3">
-                {itinerary.length === 0 && <EmptyState text={t.emptyItinerary} />}
-                {itinerary.map((item) => (
-                  <div key={item.poi.id} className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="mb-2 flex items-center gap-2">
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-cyan-400 text-sm font-bold text-slate-950">
-                            {item.order}
-                          </span>
-                          <h3 className="font-semibold text-white">{item.poi.title}</h3>
-                        </div>
-                        <p className="text-sm text-slate-400">{item.poi.category}</p>
-                        <p className="mt-2 text-sm leading-6 text-slate-300">{item.reason}</p>
-                        {item.travelFromPrevious && (
-                          <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
-                            <Badge icon={<Car size={14} />}>
-                              {typeof item.travelFromPrevious.estimatedMinutes === 'number'
-                                ? `${item.travelFromPrevious.estimatedMinutes} ${t.minutes}`
-                                : language === 'vi' ? 'di chuyển chưa rõ' : 'unknown travel'}
-                            </Badge>
-                            <Badge icon={<Map size={14} />}>
-                              {typeof item.travelFromPrevious.distanceKm === 'number'
-                                ? `${item.travelFromPrevious.distanceKm} km`
-                                : language === 'vi' ? 'khoảng cách chưa rõ' : 'unknown distance'}
-                            </Badge>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex shrink-0 gap-1">
-                        {openedSavedItineraryId && (
-                          <button
-                            onClick={() => handleBookGrab(item.poi)}
-                            disabled={item.poi.hasCoordinates === false || !isFiniteCoord(item.poi.lat, item.poi.lon) || bookingGrabId === item.poi.id}
-                            className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-600"
-                            aria-label={t.bookGrab}
-                          >
-                            {bookingGrabId === item.poi.id ? <Loader2 className="animate-spin" size={16} /> : <Car size={16} />}
-                            <span className="hidden sm:inline">{bookingGrabId === item.poi.id ? t.bookingGrab : t.bookGrab}</span>
-                          </button>
-                        )}
-                        <button
-                          onClick={() => loadExpertRoute(item.poi)}
-                          className="rounded-lg p-2 text-cyan-200 hover:bg-slate-800"
-                          aria-label={t.routeAi}
-                        >
-                          {routeLoadingId === item.poi.id ? <Loader2 className="animate-spin" size={18} /> : <Route size={18} />}
-                        </button>
-                        <button
-                          onClick={() => removeFromItinerary(item.poi.id)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-red-300"
-                          aria-label={t.remove}
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="text-xl font-semibold text-white">{t.myTrips}</h2>
-                {savedTripsLoading && <Loader2 className="animate-spin text-cyan-200" size={18} />}
+                <div>
+                  <h2 className="text-xl font-semibold text-slate-950">{t.myTrips}</h2>
+                  <p className="mt-1 text-sm text-slate-600">Mở lại chuyến đi đã lưu để tiếp tục chỉnh sửa.</p>
+                </div>
+                {savedTripsLoading && <Loader2 className="animate-spin text-teal-700" size={18} />}
               </div>
               {savedItineraries.length === 0 && <EmptyState text={t.noSavedItineraries} />}
               <div className="grid gap-3 md:grid-cols-2">
                 {savedItineraries.map((saved) => (
                   <div
                     key={saved.tripId}
-                    className="rounded-xl border border-slate-800 bg-slate-900 p-4 transition hover:border-cyan-300"
+                    className="rounded-xl border border-slate-200 bg-slate-50 p-4 transition hover:border-teal-300"
                   >
                     <button
                       type="button"
                       onClick={() => openSavedItinerary(saved)}
                       className="block w-full text-left"
                     >
-                      <div className="font-semibold text-white">{saved.title || saved.query || t.defaultSavedTitle}</div>
-                      <div className="mt-2 text-sm text-slate-400">
+                      <div className="font-semibold text-slate-950">{saved.title || saved.query || t.defaultSavedTitle}</div>
+                      <div className="mt-2 text-sm text-slate-600">
                         {saved.startDate || '--'} · {saved.dayCount || saved.preview?.dayCount || 1} {t.dayUnit} · {saved.updatedAt ? new Date(saved.updatedAt).toLocaleString(language === 'vi' ? 'vi-VN' : 'en-US') : '--'}
                       </div>
                     </button>
@@ -2644,7 +1826,7 @@ export default function UrbanAgentPage() {
                       <button
                         type="button"
                         onClick={() => openSavedItinerary(saved)}
-                        className="rounded-lg bg-cyan-600 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-700"
+                        className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-800"
                       >
                         {t.openTrip}
                       </button>
@@ -2652,7 +1834,7 @@ export default function UrbanAgentPage() {
                         type="button"
                         onClick={() => deleteSavedItinerary(saved)}
                         disabled={deletingTripId === saved.tripId}
-                        className="inline-flex items-center gap-1 rounded-lg border border-rose-300/40 px-3 py-2 text-sm font-semibold text-rose-100 hover:bg-rose-300/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {deletingTripId === saved.tripId ? <Loader2 className="animate-spin" size={15} /> : <Trash2 size={15} />}
                         {t.deleteTrip}
@@ -2663,23 +1845,6 @@ export default function UrbanAgentPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
-              <h2 className="mb-4 text-xl font-semibold text-white">{t.addable}</h2>
-              {poiResults.length === 0 && <EmptyState text={t.noExtra} />}
-              <div className="grid gap-3 md:grid-cols-2">
-                {poiResults.map((poi) => (
-                  <PoiCard
-                    key={poi.id}
-                    poi={poi}
-                    text={t}
-                    routeLoading={routeLoadingId === poi.id}
-                    onAdd={() => addPoiToItinerary(poi)}
-                    onRoute={() => loadExpertRoute(poi)}
-                    onFeedback={(eventType) => recordFeedback(eventType, { poiId: poi.id, category: poi.category })}
-                  />
-                ))}
-              </div>
-            </div>
           </div>
         ) : (
           <div className="space-y-4">
@@ -2754,23 +1919,11 @@ export default function UrbanAgentPage() {
       </section>
       <RouteMapModal
         open={routeModalOpen}
-        routes={routeRoutes}
-        selectedIndex={selectedRouteIndex}
-        selectedPoi={selectedRoutePoi}
+        title={routeModalTitle}
+        route={routeRoutes[0] || null}
         routeStops={routeStops}
-        origin={routeOrigin}
         bounds={routeBounds}
-        loading={Boolean(routeLoadingId)}
-        liveRouteEnabled={liveRouteEnabled}
-        gpsAccuracy={routeGpsAccuracy}
-        gpsError={routeGpsError}
-        text={t}
         onClose={() => setRouteModalOpen(false)}
-        onSelectRoute={(index) => {
-          setSelectedRouteIndex(index);
-          const coords = routeCoordinates(routeRoutes[index]);
-          if (coords?.length) setRouteBounds(L.latLngBounds(coords));
-        }}
       />
     </div>
   );
@@ -2778,68 +1931,110 @@ export default function UrbanAgentPage() {
 
 function MetricCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
-      <div className="mb-3 text-cyan-300">{icon}</div>
-      <div className="break-words text-xl font-bold leading-snug text-white">{value}</div>
-      <div className="text-sm text-slate-400">{label}</div>
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 text-teal-700">{icon}</div>
+      <div className="break-words text-xl font-bold leading-snug text-slate-950">{value}</div>
+      <div className="text-sm text-slate-600">{label}</div>
     </div>
   );
 }
 
-function formatMetric(value?: number) {
-  if (value === undefined || value === null || Number.isNaN(value)) return '--';
-  return value <= 1 ? `${Math.round(value * 100)}%` : String(Math.round(value));
-}
-
-function AgentLearningPanel({ status }: { status: AgentTrainingStatus | null }) {
-  const synthetic = status?.backend?.synthetic;
-  const representation = status?.backend?.representationData;
-  const backendRecall = status?.backend?.learningLoop?.after?.recallAtReturnedK;
-  const twoTowerAuc = status?.research?.twoTowerMetrics?.test?.roc_auc;
-  const pairRecords = status?.research?.twoTowerMetrics?.data?.pair_records;
-
-  return (
-    <div className="mt-4 rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-semibold text-cyan-100">Agent learning</h3>
-          <p className="mt-1 text-xs leading-5 text-slate-400">
-            Grounded synthetic data, feedback memory, and representation metrics for the trained agent.
-          </p>
-        </div>
-        <span className="rounded-full bg-emerald-400/10 px-2 py-1 text-[11px] font-semibold text-emerald-200">
-          {twoTowerAuc !== undefined ? 'trained' : 'pending'}
-        </span>
-      </div>
-
-      {status ? (
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <LearningStat label="Synthetic" value={synthetic?.sample_count} />
-          <LearningStat label="Train records" value={representation?.record_count || pairRecords} />
-          <LearningStat label="BE recall" value={formatMetric(backendRecall)} />
-          <LearningStat label="Two-tower AUC" value={formatMetric(twoTowerAuc)} />
-        </div>
-      ) : (
-        <p className="text-xs leading-5 text-slate-400">
-          No training status yet. Run the agent training pipeline and refresh.
-        </p>
-      )}
-    </div>
+function savedTripFallbackPreview(saved: SavedItinerary): TripPreviewResponse {
+  const defaultWindow = {
+    start: saved.dailyWindow?.startTime || saved.dailyWindow?.start || '09:00',
+    end: saved.dailyWindow?.endTime || saved.dailyWindow?.end || '18:00',
+  };
+  const sourceItems = saved.itinerary?.length
+    ? saved.itinerary.map((item) => ({
+        poiId: item.poi.id,
+        order: item.order,
+        dayNumber: item.dayNumber || 1,
+        stayMinutes: item.suggestedStayMinutes || 60,
+        reason: item.reason,
+        poiSnapshot: item.poi,
+        arrivalTime: item.arrivalTime || null,
+        departureTime: item.departureTime || null,
+        travelFromPrevious: item.travelFromPrevious,
+      }))
+    : (saved.stops || []).map((stop) => ({
+        ...stop,
+        dayNumber: 1,
+        arrivalTime: null,
+        departureTime: null,
+        travelFromPrevious: undefined,
+      }));
+  const dayCount = Math.max(
+    saved.dayCount || 1,
+    ...sourceItems.map((item) => item.dayNumber || 1),
   );
-}
-
-function LearningStat({ label, value }: { label: string; value?: string | number }) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950/80 p-3">
-      <div className="text-lg font-bold text-white">{value ?? '--'}</div>
-      <div className="text-[11px] text-slate-400">{label}</div>
-    </div>
-  );
+  const stops: TripPreviewStop[] = sourceItems.map((item, index) => {
+    const snapshot = item.poiSnapshot || {};
+    const lat = Number(snapshot.lat);
+    const lon = Number(snapshot.lon);
+    const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lon);
+    return {
+      stopId: `saved-${saved.tripId}-${item.poiId}-${index + 1}`,
+      order: item.order || index + 1,
+      dayNumber: item.dayNumber || 1,
+      poi: {
+        ...snapshot,
+        id: snapshot.id || item.poiId,
+        name: snapshot.name || snapshot.title || `Điểm dừng ${index + 1}`,
+        lat: hasCoordinates ? lat : null,
+        lon: hasCoordinates ? lon : null,
+        location: { lat: hasCoordinates ? lat : null, lon: hasCoordinates ? lon : null, hasCoordinates },
+      },
+      arrivalTime: item.arrivalTime,
+      departureTime: item.departureTime,
+      durationMinutes: item.stayMinutes,
+      travelFromPrevious: item.travelFromPrevious
+        ? {
+            distanceKm: item.travelFromPrevious.distanceKm,
+            estimatedMinutes: item.travelFromPrevious.estimatedMinutes,
+            distanceKnown: item.travelFromPrevious.distanceKnown,
+            travelTimeKnown: item.travelFromPrevious.travelTimeKnown,
+            source: item.travelFromPrevious.source,
+          }
+        : undefined,
+      reason: item.reason,
+      warnings: hasCoordinates ? [] : ['COORDINATES_UNKNOWN'],
+    };
+  });
+  const days: TripPreviewDay[] = Array.from({ length: dayCount }, (_, index) => {
+    const dayNumber = index + 1;
+    const override = saved.dayWindows?.find((window) => window.dayNumber === dayNumber);
+    const dayStops = stops.filter((stop) => stop.dayNumber === dayNumber);
+    return {
+      dayNumber,
+      date: saved.startDate ? addDaysIso(saved.startDate, index) : null,
+      dailyWindow: {
+        start: override?.startTime || defaultWindow.start,
+        end: override?.endTime || defaultWindow.end,
+      },
+      feasibilityStatus: saved.needsReplan ? 'FEASIBLE_WITH_WARNINGS' : 'FEASIBLE',
+      stops: dayStops.map((stop) => stop.stopId),
+      stopCount: dayStops.length,
+      warnings: [],
+      unscheduled: [],
+    };
+  });
+  return renumberTripPreview({
+    feasibilityStatus: saved.needsReplan ? 'FEASIBLE_WITH_WARNINGS' : 'FEASIBLE',
+    dayCount,
+    dailyWindow: defaultWindow,
+    days,
+    stops,
+    warnings: saved.needsReplan
+      ? [{ code: 'SAVED_TRIP_NEEDS_REPLAN', message: 'Lịch trình đã lưu có thay đổi và cần được cập nhật.' }]
+      : [],
+    unscheduled: [],
+    provenance: { source: 'saved-trip-compatibility', externalLiveDataUsed: false },
+  });
 }
 
 function Badge({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-slate-800 px-2 py-1">
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-slate-700">
       {icon}
       {children}
     </span>
@@ -2948,7 +2143,7 @@ function InsightList({ title, items, tone }: { title: string; items: string[]; t
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <div className="flex min-h-[120px] items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/50 px-4 text-center text-sm text-slate-400">
+    <div className="flex min-h-[120px] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 text-center text-sm leading-6 text-slate-600">
       {text}
     </div>
   );
@@ -2956,252 +2151,91 @@ function EmptyState({ text }: { text: string }) {
 
 function RouteMapModal({
   open,
-  routes,
-  selectedIndex,
-  selectedPoi,
+  title,
+  route,
   routeStops,
-  origin,
   bounds,
-  loading,
-  liveRouteEnabled,
-  gpsAccuracy,
-  gpsError,
-  text,
   onClose,
-  onSelectRoute,
 }: {
   open: boolean;
-  routes: RouteResult[];
-  selectedIndex: number;
-  selectedPoi: PoiResult | null;
+  title: string;
+  route: RouteResult | null;
   routeStops: PoiResult[];
-  origin: [number, number];
   bounds: L.LatLngBoundsExpression | null;
-  loading: boolean;
-  liveRouteEnabled: boolean;
-  gpsAccuracy: number | null;
-  gpsError: string;
-  text: typeof copy.vi;
   onClose: () => void;
-  onSelectRoute: (index: number) => void;
 }) {
   if (!open) return null;
-  const selectedRoute = routes[selectedIndex];
-  const isFullItinerary = !selectedPoi && routeStops.length > 1;
-  const selectedSegmentStart =
-    selectedIndex === 0
-      ? { lat: origin[0], lon: origin[1], title: 'Start' }
-      : routeStops[selectedIndex - 1]
-        ? {
-            lat: routeStops[selectedIndex - 1].lat,
-            lon: routeStops[selectedIndex - 1].lon,
-            title: routeStops[selectedIndex - 1].title,
-          }
-        : { lat: origin[0], lon: origin[1], title: 'Start' };
-  const selectedSegmentEnd = routeStops[selectedIndex];
-  const formatDistance = (meters?: number) => {
-    if (!meters) return '--';
-    return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
-  };
-  const formatDuration = (seconds?: number) => {
-    if (!seconds) return '--';
-    return `${Math.round(seconds / 60)} ${text.minutes}`;
-  };
+  const validStops = routeStops.filter((poi) => isFiniteCoord(poi.lat, poi.lon));
+  const center = validStops[0]
+    ? [validStops[0].lat, validStops[0].lon] as [number, number]
+    : [DA_NANG_CENTER.lat, DA_NANG_CENTER.lon] as [number, number];
+  const coordinates = routeCoordinates(route || undefined);
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 p-3 backdrop-blur-sm sm:p-5" onClick={onClose}>
       <div
-        className="flex h-[90vh] w-[96vw] max-w-[1360px] flex-col overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 shadow-2xl"
+        className="flex h-[92vh] w-full max-w-[1320px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
           <div className="min-w-0">
-            <h2 className="truncate text-lg font-bold text-white">
-              {selectedPoi ? `${text.routeMapTitle}: ${selectedPoi.title}` : text.fullRouteTitle}
-            </h2>
-            <p className="truncate text-sm text-slate-400">{text.routeMapHint}</p>
-            <div className="mt-1 flex items-center gap-2 text-xs">
-              <span className={liveRouteEnabled ? 'text-emerald-400' : 'text-slate-500'}>
-                {liveRouteEnabled ? 'GPS real-time đang bật' : 'GPS real-time đang tắt'}
-              </span>
-              {gpsAccuracy !== null && <span className="text-slate-500">±{Math.round(gpsAccuracy)} m</span>}
-              {loading && <span className="text-cyan-400">Đang cập nhật route...</span>}
-            </div>
-            {gpsError && <p className="mt-1 text-xs text-amber-400">{gpsError}</p>}
-            {selectedRoute?.illustrative && (
-              <p className="mt-1 text-xs font-semibold text-amber-300">
-                Đường nối minh họa giữa các điểm dừng; không phải chỉ đường theo đường bộ.
-              </p>
-            )}
+            <h2 className="truncate text-lg font-bold text-slate-950">{title}</h2>
+            <p className="mt-1 text-sm leading-5 text-slate-600">
+              Đường nối minh họa giữa các điểm, không phải chỉ đường theo đường bộ. Thời gian di chuyển là ước tính.
+            </p>
           </div>
-          <button onClick={onClose} className="rounded-xl bg-slate-800 p-2 text-slate-400 hover:text-white">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Đóng bản đồ lớn"
+            className="shrink-0 rounded-lg border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+          >
             <X size={20} />
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 lg:grid-cols-[1fr_380px]">
-          <div className="relative min-h-[420px] bg-slate-100">
-            {loading && !selectedRoute && (
-              <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-white/70 backdrop-blur-sm">
-                <div className="text-center font-semibold text-slate-700">
-                  <Loader2 className="mx-auto mb-3 animate-spin text-cyan-600" size={34} />
-                  {text.routeMapHint}
-                </div>
-              </div>
-            )}
-            <MapContainer center={origin} zoom={13} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(320px,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-1">
+          <div className="relative min-h-[320px] bg-slate-100">
+            <MapContainer center={center} zoom={13} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
               <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
               <FitBounds bounds={bounds} />
-              {!isFullItinerary && (
-                <Marker position={origin} icon={originIcon}>
-                  <Popup>Start</Popup>
-                </Marker>
+              {coordinates.length > 1 && (
+                <Polyline positions={coordinates} pathOptions={{ color: '#0F766E', weight: 5, opacity: 0.82 }} />
               )}
-              {isFullItinerary && isFiniteCoord(selectedSegmentStart.lat, selectedSegmentStart.lon) && (
-                <Marker position={[selectedSegmentStart.lat, selectedSegmentStart.lon]} icon={originIcon}>
+              {validStops.map((poi, index) => (
+                <Marker key={poi.id} position={[poi.lat, poi.lon]} icon={largeMapNumberedIcon(index + 1)}>
                   <Popup>
-                    <strong>{text.segmentStart} {selectedIndex + 1}</strong>
+                    <strong>{index + 1}. {poi.title}</strong>
                     <br />
-                    {selectedSegmentStart.title}
+                    {poi.category}
                   </Popup>
                 </Marker>
-              )}
-              {routeStops.filter((poi) => isFiniteCoord(poi.lat, poi.lon)).map((poi, index) => {
-                const isSegmentEnd = isFullItinerary && index === selectedIndex;
-                const isSegmentStart = isFullItinerary && index === selectedIndex - 1;
-                const icon = isSegmentEnd ? destIcon : isSegmentStart ? originIcon : stopIcon;
-                return (
-                  <Marker key={poi.id} position={[poi.lat, poi.lon]} icon={icon}>
-                    <Popup>
-                      <strong>
-                        {isSegmentStart ? `${text.segmentStart} ${selectedIndex + 1}` : isSegmentEnd ? `${text.segmentEnd} ${selectedIndex + 1}` : `${text.stopLabel} ${index + 1}`}
-                      </strong>
-                      <br />
-                      {poi.title}
-                    </Popup>
-                  </Marker>
-                );
-              })}
-              {routes.map((route, index) => {
-                const coords = routeCoordinates(route);
-                if (!coords.length) return null;
-                const isSelected = index === selectedIndex;
-                return (
-                  <Polyline
-                    key={`route-${index}`}
-                    positions={coords}
-                    pathOptions={{
-                      color: isSelected ? (route.esValidation?.valid ? '#a855f7' : '#f59e0b') : '#64748b',
-                      weight: isSelected ? 7 : 3,
-                      opacity: isSelected ? 1 : 0.18,
-                      dashArray: isSelected ? undefined : '8 10',
-                    }}
-                    eventHandlers={{ click: () => onSelectRoute(index) }}
-                  />
-                );
-              })}
-              {routes.flatMap((route, routeIndex) =>
-                (route.esValidation?.warnings || [])
-                  .filter((warning) => isFiniteCoord(warning.location?.lat, warning.location?.lng))
-                  .map((warning, warningIndex) => (
-                    <Marker
-                      key={`warning-${routeIndex}-${warningIndex}`}
-                      position={[warning.location!.lat, warning.location!.lng]}
-                      icon={warningIcon}
-                    >
-                      <Popup>
-                        <strong>{text.avoidSegment}</strong>
-                        <br />
-                        {warning.message || JSON.stringify(warning)}
-                      </Popup>
-                    </Marker>
-                  )),
-              )}
+              ))}
             </MapContainer>
           </div>
 
-          <aside className="min-h-0 overflow-y-auto border-l border-slate-800 bg-slate-900/60 p-4">
-            {routes.length > 1 && (
-              <div className="mb-4 grid grid-cols-2 gap-2 rounded-xl bg-slate-800 p-2">
-                {routes.map((_, index) => (
-                  <button
-                    key={index}
-                    onClick={() => onSelectRoute(index)}
-                    className={`rounded-lg px-3 py-2 text-sm font-semibold ${
-                      index === selectedIndex ? 'bg-purple-600 text-white' : 'text-slate-400 hover:bg-slate-700'
-                    }`}
-                  >
-                    {text.segmentLabel} {index + 1}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {isFullItinerary && selectedSegmentEnd && (
-              <div className="mb-4 rounded-xl border border-purple-200 bg-purple-50 p-3 text-sm text-purple-900">
-                <div className="font-semibold">{text.segmentLabel} {selectedIndex + 1}</div>
-                <div className="mt-1 leading-6">
-                  {selectedIndex === 0 ? text.currentLocation : routeStops[selectedIndex - 1]?.title || text.previousStop} → {selectedSegmentEnd.title}
-                </div>
-              </div>
-            )}
-
-            {selectedRoute ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-2">
-                  <Signal label="Distance" value={formatDistance(selectedRoute.distance)} />
-                  <Signal label="Time" value={formatDuration(selectedRoute.duration)} />
-                  <Signal
-                    label="AI"
-                    value={
-                      selectedRoute.esValidation?.valid
-                        ? text.routeLegal
-                        : `${selectedRoute.esValidation?.warnings?.length || 0} ${text.routeWarnings}`
-                    }
-                  />
-                </div>
-
-                {!!selectedRoute.esValidation?.warnings?.length && (
-                  <div className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-3">
-                    <h3 className="mb-2 font-semibold text-amber-900">{text.risks}</h3>
-                    <div className="space-y-2 text-sm text-amber-950">
-                      {selectedRoute.esValidation.warnings.map((warning, index) => (
-                        <p key={`${warning.message}-${index}`}>{warning.message || JSON.stringify(warning)}</p>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {!!selectedRoute.esValidation?.fuzzyInsights?.length && (
-                  <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3">
-                    <h3 className="mb-2 font-semibold text-cyan-900">{text.routeFuzzy}</h3>
-                    <div className="space-y-2 text-sm text-slate-700">
-                      {selectedRoute.esValidation.fuzzyInsights.map((item, index) => (
-                        <p key={`${item.road}-${index}`}>
-                          <strong>{item.road}</strong>: {item.label}
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-                  <h3 className="mb-3 font-semibold text-slate-100">{text.routeSteps}</h3>
-                  <div className="space-y-2 text-sm text-slate-300">
-                    {(selectedRoute.steps || []).slice(0, 12).map((step, index) => (
-                      <div key={`${step.instruction}-${index}`} className="flex gap-2">
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs text-purple-100">
-                          {index + 1}
-                        </span>
-                        <span>{step.instruction || step.instructions || JSON.stringify(step)}</span>
-                      </div>
-                    ))}
+          <aside className="max-h-56 overflow-y-auto border-t border-slate-200 bg-slate-50 p-4 lg:max-h-none lg:border-l lg:border-t-0">
+            <div className="mb-3 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-white px-3 py-1 font-semibold text-slate-700">{validStops.length} địa điểm</span>
+              {route && (
+                <span className="rounded-full bg-white px-3 py-1 font-semibold text-slate-700">
+                  Khoảng cách minh họa {(route.distance / 1000).toFixed(1)} km
+                </span>
+              )}
+            </div>
+            <div className="space-y-2">
+              {validStops.map((poi, index) => (
+                <div key={poi.id} className="flex gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-700 text-xs font-bold text-white">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="break-words text-sm font-semibold text-slate-950">{poi.title}</div>
+                    <div className="mt-1 text-xs text-slate-500">{poi.category}</div>
                   </div>
                 </div>
-              </div>
-            ) : (
-              <EmptyState text={text.routeMapHint} />
-            )}
+              ))}
+            </div>
           </aside>
         </div>
       </div>
@@ -3209,76 +2243,13 @@ function RouteMapModal({
   );
 }
 
-function PoiCard({
-  poi,
-  text,
-  routeLoading,
-  onAdd,
-  onRoute,
-  onFeedback,
-}: {
-  poi: PoiResult;
-  text: typeof copy.vi;
-  routeLoading: boolean;
-  onAdd: () => void;
-  onRoute: () => void;
-  onFeedback: (eventType: string) => void;
-}) {
-  const mapAction = poi.actions?.find((action) => action.type === 'map');
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-semibold text-white">{poi.title}</h3>
-          <p className="text-sm text-slate-400">{poi.category}</p>
-        </div>
-        <span className="rounded-lg bg-cyan-400/10 px-2 py-1 text-sm font-semibold text-cyan-200">
-          {poi.score}
-        </span>
-      </div>
-      <p className="text-sm leading-6 text-slate-300">{poi.reason}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          onClick={onAdd}
-          className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-100 hover:bg-slate-700"
-        >
-          <Plus size={15} />
-          {text.add}
-        </button>
-        <button
-          onClick={onRoute}
-          className="inline-flex items-center gap-1 rounded-lg bg-cyan-400/10 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-400/20"
-        >
-          {routeLoading ? <Loader2 className="animate-spin" size={15} /> : <Route size={15} />}
-          {text.routeAi}
-        </button>
-        {mapAction?.url && (
-          <a
-            href={mapAction.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-100 hover:bg-slate-700"
-          >
-            <MapPin size={15} />
-            {text.openMaps}
-          </a>
-        )}
-        <button
-          onClick={() => onFeedback('poi_useful')}
-          className="rounded-lg bg-slate-800 p-2 text-emerald-200 hover:bg-slate-700"
-          aria-label={text.useful}
-        >
-          <ThumbsUp size={15} />
-        </button>
-        <button
-          onClick={() => onFeedback('poi_not_fit')}
-          className="rounded-lg bg-slate-800 p-2 text-red-200 hover:bg-slate-700"
-          aria-label={text.notFit}
-        >
-          <ThumbsDown size={15} />
-        </button>
-      </div>
-    </div>
-  );
+function largeMapNumberedIcon(order: number) {
+  return L.divIcon({
+    className: 'urbanagent-large-map-marker',
+    html: `<span style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:999px;background:#0F766E;color:white;border:3px solid #CCFBF1;font-size:13px;font-weight:800;box-shadow:0 8px 18px rgba(15,118,110,.28);">${order}</span>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    popupAnchor: [0, -16],
+  });
 }
 

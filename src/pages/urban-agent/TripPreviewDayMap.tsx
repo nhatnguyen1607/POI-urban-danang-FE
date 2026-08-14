@@ -115,13 +115,13 @@ export function TripPreviewDayMap({
   const center = positions[0] || ([DA_NANG_CENTER.lat, DA_NANG_CENTER.lon] as [number, number]);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-[#DDD7CD] bg-[#FFFDF9] shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#DDD7CD] px-4 py-3">
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
         <div>
-          <h3 className="font-semibold text-[#1F2933]">Bản đồ trong ngày</h3>
-          <p className="text-xs text-[#68737D]">Đường nối minh họa giữa các điểm, không phải chỉ đường theo đường bộ.</p>
+          <h3 className="font-semibold text-slate-950">Bản đồ trong ngày</h3>
+          <p className="text-xs leading-5 text-slate-600">Đường nối minh họa giữa các điểm, không phải chỉ đường theo đường bộ.</p>
         </div>
-        <span className="rounded-full bg-[#F4EDE2] px-3 py-1 text-xs font-semibold text-[#0B3B60]">
+        <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-800">
           Thời gian di chuyển ước tính
         </span>
       </div>
@@ -161,7 +161,7 @@ export function TripPreviewDayMap({
           </MapContainer>
         </div>
       ) : (
-        <div className="flex min-h-[260px] items-center justify-center px-5 text-center text-sm leading-6 text-[#68737D]">
+        <div className="flex min-h-[260px] items-center justify-center px-5 text-center text-sm leading-6 text-slate-600">
           Ngày này chưa có điểm dừng có tọa độ hợp lệ để hiển thị trên bản đồ.
         </div>
       )}
