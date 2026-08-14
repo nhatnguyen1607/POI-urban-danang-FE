@@ -335,6 +335,14 @@ function minutesOf(value: string) {
   return hours * 60 + minutes;
 }
 
+function toTripPreviewTransport(value: string) {
+  return value === 'walking' ? 'walk' : value;
+}
+
+function toUiTransport(value: string) {
+  return value === 'walk' ? 'walking' : value;
+}
+
 function createTripDayWindows(dayCount: number, startTime: string, endTime: string, current: TripDayWindow[] = []) {
   return Array.from({ length: dayCount }, (_, index) => {
     const dayNumber = index + 1;
@@ -1065,7 +1073,7 @@ export default function UrbanAgentPage() {
         endTime: defaultEndTime,
       },
       dayWindows: activeDayWindowOverrides,
-      transport,
+      transport: toTripPreviewTransport(transport),
       pace,
       budget: 'unknown',
     },
@@ -1556,7 +1564,7 @@ export default function UrbanAgentPage() {
     },
     dayWindows: tripDayWindows,
     pace,
-    transport,
+    transport: toTripPreviewTransport(transport),
     includedPoiIds: mustIncludePoiIds,
     excludedPoiIds: excludePoiIds,
     request: tripRequestBody(),
@@ -1613,7 +1621,7 @@ export default function UrbanAgentPage() {
       }
       if (loaded.dayWindows?.length) setTripDayWindows(loaded.dayWindows);
       setPace(loaded.pace || pace);
-      setTransport(loaded.transport || transport);
+      setTransport(toUiTransport(loaded.transport || transport));
       setMustIncludePoiIds(loaded.includedPoiIds || []);
       setExcludePoiIds(loaded.excludedPoiIds || []);
       if (loaded.preview) {
@@ -2338,8 +2346,8 @@ export default function UrbanAgentPage() {
                     <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">
                       Thời gian di chuyển ước tính: {activeTripPreview.routeSummary?.totalTravelMinutes ?? '--'} phút
                     </span>
-                    {(activeTripPreview.warnings || []).slice(0, 3).map((warning) => (
-                      <span key={warning.code} className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-amber-100">
+                    {(activeTripPreview.warnings || []).slice(0, 3).map((warning, warningIndex) => (
+                      <span key={`${warning.code}-${warningIndex}`} className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-amber-100">
                         {warning.code}
                       </span>
                     ))}
@@ -2413,7 +2421,7 @@ export default function UrbanAgentPage() {
                           </button>
                         </div>
                         <TravelerItineraryViewSwitch value={mobilePreviewView} onChange={setMobilePreviewView} />
-                        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+                        <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(320px,1fr)_420px]">
                           <div className={`${mobilePreviewView === 'timeline' ? 'block' : 'hidden'} space-y-3 md:block`}>
                             {dayStops.length === 0 && <EmptyState text="Ngày này chưa có điểm dừng phù hợp." />}
                             {dayStops.map((stop, stopIndex) => {
