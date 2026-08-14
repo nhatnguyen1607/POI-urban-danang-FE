@@ -60,15 +60,22 @@ function numberedPreviewIcon(order: number, selected: boolean) {
 
 function PreviewMapBounds({ positions }: { positions: [number, number][] }) {
   const map = useMap();
+  const positionsKey = positions.map(([lat, lon]) => `${lat},${lon}`).join('|');
 
   useEffect(() => {
-    if (!positions.length) return;
-    if (positions.length === 1) {
-      map.setView(positions[0], 14, { animate: true });
+    const nextPositions = positionsKey
+      .split('|')
+      .filter(Boolean)
+      .map((position) => position.split(',').map(Number) as [number, number]);
+    if (!nextPositions.length) return;
+
+    map.stop();
+    if (nextPositions.length === 1) {
+      map.setView(nextPositions[0], 14, { animate: false });
       return;
     }
-    map.fitBounds(L.latLngBounds(positions), { padding: [28, 28], maxZoom: 15, animate: true });
-  }, [map, positions]);
+    map.fitBounds(L.latLngBounds(nextPositions), { padding: [28, 28], maxZoom: 15, animate: false });
+  }, [map, positionsKey]);
 
   return null;
 }
@@ -79,11 +86,14 @@ function SelectedStopPan({
   selectedPosition: [number, number] | null;
 }) {
   const map = useMap();
+  const selectedLat = selectedPosition?.[0] ?? null;
+  const selectedLon = selectedPosition?.[1] ?? null;
 
   useEffect(() => {
-    if (!selectedPosition) return;
-    map.setView(selectedPosition, Math.max(map.getZoom(), 14), { animate: true });
-  }, [map, selectedPosition]);
+    if (selectedLat === null || selectedLon === null) return;
+    map.stop();
+    map.setView([selectedLat, selectedLon], Math.max(map.getZoom(), 14), { animate: false });
+  }, [map, selectedLat, selectedLon]);
 
   return null;
 }

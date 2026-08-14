@@ -18,6 +18,17 @@ const getApiUrl = () => {
 
 export const getApiBaseUrl = getApiUrl;
 
+const fetchWithNetworkMessage = async (input: RequestInfo | URL, init?: RequestInit) => {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error('Không thể kết nối đến máy chủ. Vui lòng thử lại.');
+    }
+    throw error;
+  }
+};
+
 const mergeHeaders = async (...headersList: Array<HeadersInit | undefined>) => {
   const merged = new Headers();
   headersList.forEach((headers) => {
@@ -40,7 +51,7 @@ const mergeHeaders = async (...headersList: Array<HeadersInit | undefined>) => {
 export const apiClient = {
   get: async (endpoint: string, options?: RequestInit) => {
     const url = `${getApiUrl()}${endpoint}`;
-    const response = await fetch(url, {
+    const response = await fetchWithNetworkMessage(url, {
       ...options,
       headers: await mergeHeaders({ 'Content-Type': 'application/json' }, options?.headers),
     });
@@ -64,7 +75,7 @@ export const apiClient = {
   post: async (endpoint: string, body?: unknown, options?: RequestInit) => {
     const url = `${getApiUrl()}${endpoint}`;
     const isFormData = body instanceof FormData;
-    const response = await fetch(url, {
+    const response = await fetchWithNetworkMessage(url, {
       ...options,
       method: 'POST',
       headers: await mergeHeaders(isFormData ? undefined : { 'Content-Type': 'application/json' }, options?.headers),
@@ -89,7 +100,7 @@ export const apiClient = {
 
   patch: async (endpoint: string, body?: unknown, options?: RequestInit) => {
     const url = `${getApiUrl()}${endpoint}`;
-    const response = await fetch(url, {
+    const response = await fetchWithNetworkMessage(url, {
       ...options,
       method: 'PATCH',
       headers: await mergeHeaders({ 'Content-Type': 'application/json' }, options?.headers),
@@ -114,7 +125,7 @@ export const apiClient = {
 
   delete: async (endpoint: string, options?: RequestInit) => {
     const url = `${getApiUrl()}${endpoint}`;
-    const response = await fetch(url, {
+    const response = await fetchWithNetworkMessage(url, {
       ...options,
       method: 'DELETE',
       headers: await mergeHeaders({ 'Content-Type': 'application/json' }, options?.headers),
