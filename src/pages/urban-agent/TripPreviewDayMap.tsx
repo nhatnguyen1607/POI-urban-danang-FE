@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import L from 'leaflet';
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
+import { normalizeCoordinatePair } from './travelerCapabilities';
 
 type TripPreviewDayMapStop = {
   stopId: string;
@@ -20,8 +21,6 @@ type PoiMapPoint = {
   hasCoordinates: boolean;
 };
 
-const DA_NANG_CENTER = { lat: 16.0544, lon: 108.2022 };
-
 function valueRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
@@ -33,16 +32,15 @@ function stringValue(value: unknown) {
 function stopPoi(stop: TripPreviewDayMapStop, fallbackIndex: number): PoiMapPoint {
   const poi = valueRecord(stop.poi);
   const location = valueRecord(poi.location);
-  const lat = Number(location.lat ?? poi.lat);
-  const lon = Number(location.lon ?? poi.lon ?? poi.lng);
+  const coordinates = normalizeCoordinatePair(location.lat ?? poi.lat, location.lon ?? poi.lon ?? poi.lng);
 
   return {
     id: String(poi.globalId || poi.id || `preview-poi-${fallbackIndex}`),
     title: stringValue(poi.name) || stringValue(poi.title) || `Điểm dừng ${fallbackIndex + 1}`,
     category: stringValue(poi.category) || stringValue(poi.categoryNormalized) || 'địa điểm',
-    lat,
-    lon,
-    hasCoordinates: Boolean(location.hasCoordinates ?? (Number.isFinite(lat) && Number.isFinite(lon))),
+    lat: coordinates.lat,
+    lon: coordinates.lon,
+    hasCoordinates: location.hasCoordinates !== false && coordinates.hasCoordinates,
   };
 }
 
@@ -112,7 +110,6 @@ export function TripPreviewDayMap({
     .filter(({ poi }) => poi.hasCoordinates && Number.isFinite(poi.lat) && Number.isFinite(poi.lon));
   const positions = mappedStops.map(({ poi }) => [poi.lat, poi.lon] as [number, number]);
   const selectedPosition = mappedStops.find(({ stop }) => stop.stopId === selectedStopId);
-  const center = positions[0] || ([DA_NANG_CENTER.lat, DA_NANG_CENTER.lon] as [number, number]);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -127,7 +124,7 @@ export function TripPreviewDayMap({
       </div>
       {positions.length ? (
         <div className="h-[420px] min-h-[320px]">
-          <MapContainer center={center} zoom={13} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
+          <MapContainer center={positions[0]} zoom={13} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
             <PreviewMapBounds positions={positions} />
             <SelectedStopPan selectedPosition={selectedPosition ? [selectedPosition.poi.lat, selectedPosition.poi.lon] : null} />
             <TileLayer

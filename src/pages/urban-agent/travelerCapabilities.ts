@@ -26,15 +26,33 @@ export type TravelerActionPoi = {
   hasCoordinates?: boolean;
 };
 
+export function normalizeCoordinatePair(latValue: unknown, lonValue: unknown) {
+  const lat = latValue === null || latValue === undefined || latValue === ''
+    ? Number.NaN
+    : Number(latValue);
+  const lon = lonValue === null || lonValue === undefined || lonValue === ''
+    ? Number.NaN
+    : Number(lonValue);
+  const hasCoordinates = Number.isFinite(lat)
+    && Number.isFinite(lon)
+    && !(lat === 0 && lon === 0)
+    && lat >= -90
+    && lat <= 90
+    && lon >= -180
+    && lon <= 180;
+  return { lat, lon, hasCoordinates };
+}
+
 export function hasValidPoiCoordinates(poi: Pick<TravelerActionPoi, 'lat' | 'lon' | 'hasCoordinates'>) {
-  return poi.hasCoordinates !== false && Number.isFinite(poi.lat) && Number.isFinite(poi.lon);
+  return poi.hasCoordinates !== false && normalizeCoordinatePair(poi.lat, poi.lon).hasCoordinates;
 }
 
 export function routeCoordinates(route?: TravelerRouteResult | null) {
   return (route?.route?.coordinates || [])
     .filter((coordinate) => Array.isArray(coordinate) && coordinate.length >= 2)
-    .map((coordinate) => [Number(coordinate[1]), Number(coordinate[0])] as [number, number])
-    .filter(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon));
+    .map((coordinate) => normalizeCoordinatePair(coordinate[1], coordinate[0]))
+    .filter((coordinate) => coordinate.hasCoordinates)
+    .map(({ lat, lon }) => [lat, lon] as [number, number]);
 }
 
 function valueRecord(value: unknown): Record<string, unknown> {
@@ -91,8 +109,9 @@ export function buildGrabBookingUrl(
   pickup?: { lat: number; lng: number } | null,
 ) {
   if (!hasValidPoiCoordinates(poi)) return null;
-  const pickupParams = pickup && Number.isFinite(pickup.lat) && Number.isFinite(pickup.lng)
-    ? `&pickupLatitude=${pickup.lat}&pickupLongitude=${pickup.lng}`
+  const normalizedPickup = pickup ? normalizeCoordinatePair(pickup.lat, pickup.lng) : null;
+  const pickupParams = normalizedPickup?.hasCoordinates
+    ? `&pickupLatitude=${normalizedPickup.lat}&pickupLongitude=${normalizedPickup.lon}`
     : '';
   return `grab://open?screenType=BOOKING${pickupParams}`
     + `&dropOffLatitude=${poi.lat}`

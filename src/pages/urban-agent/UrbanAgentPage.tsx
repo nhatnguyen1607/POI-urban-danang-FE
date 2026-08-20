@@ -43,6 +43,7 @@ import {
   buildGrabBookingUrl,
   getCurrentLocationOnce,
   normalizeTravelerRoute,
+  normalizeCoordinatePair,
   type TravelerRouteResult,
 } from './travelerCapabilities';
 
@@ -299,8 +300,8 @@ function createTripDayWindows(dayCount: number, startTime: string, endTime: stri
   });
 }
 
-function isFiniteCoord(lat?: number, lon?: number) {
-  return Number.isFinite(lat) && Number.isFinite(lon);
+function isFiniteCoord(lat?: number | null, lon?: number | null) {
+  return normalizeCoordinatePair(lat, lon).hasCoordinates;
 }
 
 function haversineMeters(
@@ -334,8 +335,7 @@ function poiFromV2(input: unknown, fallbackIndex = 0): PoiResult {
   const address = valueRecord(poi.address);
   const rating = valueRecord(poi.rating);
   const normalizedRating = valueRecord(rating.normalized);
-  const lat = Number(location.lat ?? poi.lat);
-  const lon = Number(location.lon ?? poi.lon ?? poi.lng);
+  const coordinates = normalizeCoordinatePair(location.lat ?? poi.lat, location.lon ?? poi.lon ?? poi.lng);
   const id = String(poi.globalId || poi.id || `v2-poi-${fallbackIndex}`);
   const score = Number(source.score || poi.score || 0);
   return {
@@ -345,19 +345,19 @@ function poiFromV2(input: unknown, fallbackIndex = 0): PoiResult {
     address: stringValue(address.current) || stringValue(address.raw) || stringValue(poi.address) || stringValue(poi.addressRaw),
     category: stringValue(poi.category) || stringValue(poi.categoryNormalized) || 'place',
     district: stringValue(address.district) || stringValue(poi.district) || 'Đà Nẵng',
-    lat: Number.isFinite(lat) ? lat : Number.NaN,
-    lon: Number.isFinite(lon) ? lon : Number.NaN,
-    hasCoordinates: Boolean(location.hasCoordinates ?? (Number.isFinite(lat) && Number.isFinite(lon))),
+    lat: coordinates.lat,
+    lon: coordinates.lon,
+    hasCoordinates: location.hasCoordinates !== false && coordinates.hasCoordinates,
     rating: Number(normalizedRating.value ?? poi.rating) || undefined,
     score: Math.round(score <= 1 ? score * 100 : score),
     reason: stringValue(source.reason) || stringValue(poi.reason) || 'Phù hợp với nhu cầu chuyến đi.',
     warnings: Array.isArray(source.warnings) ? source.warnings.map(String) : [],
-    actions: Number.isFinite(lat) && Number.isFinite(lon)
+    actions: coordinates.hasCoordinates
       ? [
           {
             type: 'map',
             label: 'Google Maps',
-            url: `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`,
+            url: `https://www.google.com/maps/search/?api=1&query=${coordinates.lat},${coordinates.lon}`,
           },
         ]
       : [],
@@ -646,8 +646,14 @@ export default function UrbanAgentPage() {
   const [saveMessage, setSaveMessage] = useState('');
   const previewStopRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const recommendationPanelRef = useRef<HTMLDivElement | null>(null);
+  const schedulerRequestIdRef = useRef(0);
+  const recommendationRequestIdRef = useRef(0);
+  const routeRequestIdRef = useRef(0);
 
   useEffect(() => {
+    schedulerRequestIdRef.current += 1;
+    recommendationRequestIdRef.current += 1;
+    routeRequestIdRef.current += 1;
     setQuery(roleCopy[role].sample);
     setError('');
     setTripPreview(null);
@@ -658,6 +664,9 @@ export default function UrbanAgentPage() {
     setBusinessAreas([]);
     setRouteModalOpen(false);
     setRouteStops([]);
+    setPreviewLoading(false);
+    setRecommendationLoading(false);
+    setRouteLoadingId('');
     setOpenedSavedItineraryId('');
   }, [role, roleCopy]);
 
@@ -944,6 +953,7 @@ export default function UrbanAgentPage() {
     nextExcludePoiIds?: string[];
     successMessage?: string;
   } = {}) {
+    const requestId = ++schedulerRequestIdRef.current;
     setPreviewLoading(true);
     setPreviewPhase(activeTripPreview ? 'updating' : 'scheduling');
     setPreviewError('');
@@ -963,6 +973,7 @@ export default function UrbanAgentPage() {
         if (!savedTrip) {
           throw new Error(language === 'vi' ? 'Chưa cập nhật được lịch trình đã lưu.' : 'Could not update the saved trip.');
         }
+        if (requestId !== schedulerRequestIdRef.current) return null;
         applySavedTripLifecycleState(
           savedTrip,
           successMessage || (language === 'vi' ? 'Đã cập nhật lịch trình đã lưu.' : 'Saved trip updated.'),
@@ -977,16 +988,20 @@ export default function UrbanAgentPage() {
       }));
       const preview = response?.data?.trip as TripPreviewResponse | undefined;
       if (!preview) throw new Error('Chưa tạo được lịch trình từ phản hồi máy chủ.');
+      if (requestId !== schedulerRequestIdRef.current) return null;
       applyCalculatedTripPreview(preview, response?.meta?.requestId || '');
       if (successMessage) setSaveMessage(successMessage);
       return preview;
     } catch (caught) {
+      if (requestId !== schedulerRequestIdRef.current) return null;
       const message = caught instanceof Error ? caught.message : 'Chưa thể cập nhật lịch trình. Vui lòng thử lại.';
       setPreviewError(message);
       throw caught;
     } finally {
-      setPreviewLoading(false);
-      setPreviewPhase('idle');
+      if (requestId === schedulerRequestIdRef.current) {
+        setPreviewLoading(false);
+        setPreviewPhase('idle');
+      }
     }
   }
 
@@ -1003,10 +1018,18 @@ export default function UrbanAgentPage() {
     setMustIncludePoiIds(nextMustIncludePoiIds);
     markTripDirty('Đang thêm địa điểm và tính toán lại thời gian cho chuyến đi.');
     try {
-      await runTripScheduler({
+      const preview = await runTripScheduler({
         nextMustIncludePoiIds,
-        successMessage: 'Đã thêm địa điểm và cập nhật lại lịch trình.',
       });
+      if (!preview) return;
+      const scheduled = preview?.stops.some((stop, index) => poiIdFromTripStop(stop, index) === poiId);
+      if (!scheduled) {
+        setTripPreviewDirty(true);
+        setTripEditMessage('Địa điểm đã được giữ trong lựa chọn nhưng chưa thể xếp vào khung giờ hiện tại.');
+        setSaveMessage('Chưa thể xếp địa điểm đã chọn vào lịch trình hiện tại.');
+        return;
+      }
+      setSaveMessage('Đã thêm địa điểm và cập nhật lại lịch trình.');
     } catch {
       setTripPreviewDirty(true);
       setTripEditMessage('Đã giữ lựa chọn mới. Hãy thử cập nhật lịch trình lại.');
@@ -1099,6 +1122,7 @@ export default function UrbanAgentPage() {
   };
 
   const requestTravelerRecommendations = async () => {
+    const requestId = ++recommendationRequestIdRef.current;
     const response = await apiClient.post('/api/v2/recommendations', {
       cityId: 'da-nang',
       query: query.trim(),
@@ -1106,6 +1130,7 @@ export default function UrbanAgentPage() {
       context: {},
     });
     const recommendations = response?.data?.recommendations || [];
+    if (requestId !== recommendationRequestIdRef.current) return [] as TravelerRecommendationV2[];
     setTravelerRecommendations(recommendations);
     setTravelerRequestId(response?.meta?.requestId || '');
     setRecommendationsRequested(true);
@@ -1144,6 +1169,8 @@ export default function UrbanAgentPage() {
       return;
     }
     const illustrativeRoute = buildIllustrativeRoute(stops);
+    routeRequestIdRef.current += 1;
+    setRouteLoadingId('');
     setSelectedPreviewDay(dayNumber);
     const selectedDay = preview.days.find((day) => day.dayNumber === dayNumber);
     setRouteModalTitle(
@@ -1164,6 +1191,8 @@ export default function UrbanAgentPage() {
     if (recommendationIndex < 0) return;
     const poi = poiFromV2(travelerRecommendations[recommendationIndex], recommendationIndex);
     if (poi.hasCoordinates === false || !isFiniteCoord(poi.lat, poi.lon)) return;
+    routeRequestIdRef.current += 1;
+    setRouteLoadingId('');
     setRouteModalTitle(poi.title);
     setRouteStops([poi]);
     setRouteRoutes([]);
@@ -1181,11 +1210,13 @@ export default function UrbanAgentPage() {
     setPreviewLoading(true);
     setPreviewError('');
     setError('');
+    const stateVersion = schedulerRequestIdRef.current;
     try {
       if (!activeTripPreview) {
         setPreviewPhase('discovering');
         setRecommendationError('');
         await requestTravelerRecommendations();
+        if (stateVersion !== schedulerRequestIdRef.current) return;
       }
       await runTripScheduler({
         successMessage: activeTripPreview ? 'Đã cập nhật lịch trình theo các thay đổi mới.' : '',
@@ -1240,13 +1271,13 @@ export default function UrbanAgentPage() {
       setSaveMessage(language === 'vi' ? 'Đăng nhập để lưu lịch trình' : 'Sign in to save this itinerary');
       return;
     }
-    const canSave = await requireAuthFor(
-      language === 'vi' ? 'Đăng nhập để lưu lịch trình vào tài khoản của bạn.' : 'Sign in to save this itinerary.',
-    );
-    if (!canSave) return;
     setSavingItinerary(true);
     setSaveMessage('');
     try {
+      const canSave = await requireAuthFor(
+        language === 'vi' ? 'Đăng nhập để lưu lịch trình vào tài khoản của bạn.' : 'Sign in to save this itinerary.',
+      );
+      if (!canSave) return;
       const payload = currentTripPayload();
       const result = openedSavedItineraryId
         ? await apiClient.patch(`/api/v2/trips/${openedSavedItineraryId}`, payload)
@@ -1271,6 +1302,9 @@ export default function UrbanAgentPage() {
     try {
       const response = await apiClient.get(`/api/v2/trips/${saved.tripId}`);
       const loaded = (response?.data?.trip || saved) as SavedItinerary;
+      const loadedRequest = valueRecord(loaded.request);
+      const loadedConstraints = valueRecord(loadedRequest.constraints);
+      const loadedMaxStopsPerDay = Number(loadedConstraints.maxStopsPerDay);
       setQuery(loaded.query || query);
       setTripStartDate(loaded.startDate || tripStartDate);
       setTripDayCount(loaded.dayCount || tripDayCount);
@@ -1281,6 +1315,9 @@ export default function UrbanAgentPage() {
       if (loaded.dayWindows?.length) setTripDayWindows(loaded.dayWindows);
       setPace(loaded.pace || pace);
       setTransport(toUiTransport(loaded.transport || transport));
+      if (Number.isInteger(loadedMaxStopsPerDay) && loadedMaxStopsPerDay >= 1 && loadedMaxStopsPerDay <= 6) {
+        setMaxStopsPerDay(loadedMaxStopsPerDay);
+      }
       setMustIncludePoiIds(loaded.includedPoiIds || []);
       setExcludePoiIds(loaded.excludedPoiIds || []);
       if (loaded.preview) {
@@ -1376,8 +1413,9 @@ export default function UrbanAgentPage() {
       setError('Địa điểm này chưa có tọa độ hợp lệ để xem tuyến đường.');
       return;
     }
+    const requestId = ++routeRequestIdRef.current;
     const canRoute = await requireAuthFor('Đăng nhập để xem tuyến đường bộ tham khảo trong UrbanAgent.');
-    if (!canRoute) return;
+    if (!canRoute || requestId !== routeRequestIdRef.current) return;
 
     setRouteLoadingId(destination.id);
     setRouteModalTitle(`Tuyến đường đến ${destination.title}`);
@@ -1389,6 +1427,7 @@ export default function UrbanAgentPage() {
     setRouteModalOpen(true);
     try {
       const origin = await getCurrentLocationOnce(language);
+      if (requestId !== routeRequestIdRef.current) return;
       setRouteOrigin([origin.lat, origin.lng]);
       const response = await apiClient.post('/api/route', {
         origin,
@@ -1399,17 +1438,25 @@ export default function UrbanAgentPage() {
         .map((route: unknown) => normalizeTravelerRoute(route))
         .filter((route): route is TravelerRouteResult => route !== null);
       if (!routes.length) throw new Error('Máy chủ chưa trả về tuyến đường hợp lệ.');
+      if (requestId !== routeRequestIdRef.current) return;
       setRouteRoutes(routes);
       void recordFeedback('route_requested', { poiId: destination.id, category: destination.category });
     } catch (caught) {
+      if (requestId !== routeRequestIdRef.current) return;
       setRouteError(
         caught instanceof Error
           ? caught.message
           : 'Không thể tính tuyến đường. Bạn vẫn có thể mở Google Maps để chỉ đường.',
       );
     } finally {
-      setRouteLoadingId('');
+      if (requestId === routeRequestIdRef.current) setRouteLoadingId('');
     }
+  };
+
+  const closeRouteModal = () => {
+    routeRequestIdRef.current += 1;
+    setRouteLoadingId('');
+    setRouteModalOpen(false);
   };
 
   const itineraryMoveMinutes = (activeTripPreview?.stops || []).reduce((sum, stop) => (
@@ -1422,6 +1469,7 @@ export default function UrbanAgentPage() {
     : previewPhase === 'updating'
       ? 'Đang cập nhật lịch trình...'
       : 'Đang tạo lịch trình...';
+  const plannerBusy = previewLoading || recommendationLoading || tripLifecycleLoading || savingItinerary;
 
   return (
     <div className="customer-agent min-h-full space-y-6 text-slate-700">
@@ -1460,6 +1508,7 @@ export default function UrbanAgentPage() {
           <label className="mb-2 block text-sm font-medium text-slate-700">Bạn muốn chuyến đi như thế nào?</label>
           <textarea
             value={query}
+            disabled={plannerBusy}
             onChange={(event) => {
               setQuery(event.target.value);
               markTripDirty();
@@ -1471,11 +1520,12 @@ export default function UrbanAgentPage() {
             {TRAVEL_INTERESTS.map((interest) => {
               const selected = query.toLocaleLowerCase('vi-VN').includes(interest.toLocaleLowerCase('vi-VN'));
               return (
-                <button
-                  key={interest}
-                  type="button"
-                  onClick={() => toggleInterest(interest)}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  <button
+                    key={interest}
+                    type="button"
+                    disabled={plannerBusy}
+                    onClick={() => toggleInterest(interest)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                     selected
                       ? 'border-teal-600 bg-teal-50 text-teal-800'
                       : 'border-slate-300 bg-white text-slate-600 hover:border-teal-400 hover:text-teal-800'
@@ -1493,6 +1543,7 @@ export default function UrbanAgentPage() {
                 <label className="mb-2 block text-sm font-medium text-slate-700">{t.transport}</label>
                 <select
                   value={transport}
+                  disabled={plannerBusy}
                   onChange={(event) => {
                     setTransport(event.target.value);
                     markTripDirty();
@@ -1524,6 +1575,7 @@ export default function UrbanAgentPage() {
                     <input
                       type="date"
                       value={tripStartDate}
+                      disabled={plannerBusy}
                       onChange={(event) => {
                         setTripStartDate(event.target.value);
                         markTripDirty();
@@ -1535,6 +1587,7 @@ export default function UrbanAgentPage() {
                     <span className="mb-1 block text-xs font-medium text-slate-600">Số ngày</span>
                     <select
                       value={tripDayCount}
+                      disabled={plannerBusy}
                       onChange={(event) => {
                         setTripDayCount(Number(event.target.value));
                         markTripDirty();
@@ -1551,6 +1604,7 @@ export default function UrbanAgentPage() {
                     <input
                       type="time"
                       value={defaultStartTime}
+                      disabled={plannerBusy}
                       onChange={(event) => {
                         const nextValue = event.target.value;
                         setTripDayWindows((items) => items.map((item) => (
@@ -1567,6 +1621,7 @@ export default function UrbanAgentPage() {
                     <input
                       type="time"
                       value={defaultEndTime}
+                      disabled={plannerBusy}
                       onChange={(event) => {
                         const nextValue = event.target.value;
                         setTripDayWindows((items) => items.map((item) => (
@@ -1582,6 +1637,7 @@ export default function UrbanAgentPage() {
                     <span className="mb-1 block text-xs font-medium text-slate-600">Nhịp đi</span>
                     <select
                       value={pace}
+                      disabled={plannerBusy}
                       onChange={(event) => {
                         setPace(event.target.value);
                         markTripDirty();
@@ -1597,6 +1653,7 @@ export default function UrbanAgentPage() {
                     <span className="mb-1 block text-xs font-medium text-slate-600">Số điểm tối đa mỗi ngày</span>
                     <select
                       value={maxStopsPerDay}
+                      disabled={plannerBusy}
                       onChange={(event) => {
                         setMaxStopsPerDay(Number(event.target.value));
                         markTripDirty();
@@ -1620,6 +1677,7 @@ export default function UrbanAgentPage() {
                       <input
                         type="time"
                         value={window.startTime}
+                        disabled={plannerBusy}
                         onChange={(event) => {
                           setTripDayWindows((items) => items.map((item) => (
                             item.dayNumber === window.dayNumber ? { ...item, startTime: event.target.value } : item
@@ -1631,6 +1689,7 @@ export default function UrbanAgentPage() {
                       <input
                         type="time"
                         value={window.endTime}
+                        disabled={plannerBusy}
                         onChange={(event) => {
                           setTripDayWindows((items) => items.map((item) => (
                             item.dayNumber === window.dayNumber ? { ...item, endTime: event.target.value } : item
@@ -1652,7 +1711,7 @@ export default function UrbanAgentPage() {
                   <button
                     type="button"
                     onClick={createTripPreview}
-                    disabled={previewLoading || tripLifecycleLoading || Boolean(travelerValidationError)}
+                    disabled={plannerBusy || Boolean(travelerValidationError)}
                     className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {previewLoading ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
@@ -1701,7 +1760,7 @@ export default function UrbanAgentPage() {
                   loading={recommendationLoading}
                   requested={recommendationsRequested}
                   error={recommendationError}
-                  disabled={previewLoading || tripLifecycleLoading || Boolean(travelerValidationError)}
+                  disabled={plannerBusy || Boolean(travelerValidationError)}
                   onRefresh={loadTravelerRecommendations}
                   onInclude={(poiId) => void includeRecommendationPoi(poiId)}
                   onExclude={(poiId) => void excludeRecommendationPoi(poiId)}
@@ -1729,7 +1788,7 @@ export default function UrbanAgentPage() {
                     <button
                       type="button"
                       onClick={() => void loadTravelerRecommendations()}
-                      disabled={recommendationLoading || previewLoading || Boolean(travelerValidationError)}
+                      disabled={plannerBusy || Boolean(travelerValidationError)}
                       className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-teal-700 bg-white px-3 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {recommendationLoading ? <Loader2 className="animate-spin" size={15} /> : <Sparkles size={15} />}
@@ -1740,7 +1799,7 @@ export default function UrbanAgentPage() {
                     <button
                       type="button"
                       onClick={saveCurrentItinerary}
-                      disabled={savingItinerary}
+                      disabled={savingItinerary || plannerBusy}
                       className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-teal-700 bg-white px-3 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {savingItinerary ? <Loader2 className="animate-spin" size={15} /> : <Save size={15} />}
@@ -1788,8 +1847,9 @@ export default function UrbanAgentPage() {
                     <button
                       key={`include-${poiId}`}
                       type="button"
+                      disabled={plannerBusy}
                       onClick={() => removeTripConstraintPoi(poiId)}
-                      className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-emerald-800"
+                      className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Thêm {tripConstraintLabel(poiId)}
                       <X size={12} />
@@ -1799,8 +1859,9 @@ export default function UrbanAgentPage() {
                     <button
                       key={`exclude-${poiId}`}
                       type="button"
+                      disabled={plannerBusy}
                       onClick={() => removeTripConstraintPoi(poiId)}
-                      className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 font-semibold text-rose-700"
+                      className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Loại {tripConstraintLabel(poiId)}
                       <X size={12} />
@@ -1837,7 +1898,7 @@ export default function UrbanAgentPage() {
                       <button
                         type="button"
                         onClick={createTripPreview}
-                        disabled={previewLoading || tripLifecycleLoading || Boolean(travelerValidationError)}
+                        disabled={plannerBusy || Boolean(travelerValidationError)}
                         className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {previewLoading ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
@@ -1960,13 +2021,13 @@ export default function UrbanAgentPage() {
                                       onMoveUp={() => moveScheduledStop(stop, -1)}
                                       onMoveDown={() => moveScheduledStop(stop, 1)}
                                       onRemove={() => removeScheduledStop(stop)}
-                                      disabled={previewLoading || tripLifecycleLoading}
+                                      disabled={plannerBusy}
                                     />
                                     <TravelerStopTravelActions
                                       poi={poi}
                                       routeLoading={routeLoadingId === poi.id}
                                       grabLoading={bookingGrabId === poi.id}
-                                      disabled={previewLoading || tripLifecycleLoading}
+                                      disabled={plannerBusy}
                                       canSendFeedback={Boolean(user)}
                                       onInspectRoute={() => void loadExpertRoute(poi)}
                                       onBookRide={() => void handleBookGrab(poi)}
@@ -2018,7 +2079,8 @@ export default function UrbanAgentPage() {
                     <button
                       type="button"
                       onClick={() => openSavedItinerary(saved)}
-                      className="block w-full text-left"
+                      disabled={plannerBusy}
+                      className="block w-full text-left disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <div className="font-semibold text-slate-950">{saved.title || saved.query || t.defaultSavedTitle}</div>
                       <div className="mt-2 text-sm text-slate-600">
@@ -2029,14 +2091,15 @@ export default function UrbanAgentPage() {
                       <button
                         type="button"
                         onClick={() => openSavedItinerary(saved)}
-                        className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+                        disabled={plannerBusy}
+                        className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {t.openTrip}
                       </button>
                       <button
                         type="button"
                         onClick={() => deleteSavedItinerary(saved)}
-                        disabled={deletingTripId === saved.tripId}
+                        disabled={deletingTripId === saved.tripId || plannerBusy}
                         className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {deletingTripId === saved.tripId ? <Loader2 className="animate-spin" size={15} /> : <Trash2 size={15} />}
@@ -2129,7 +2192,7 @@ export default function UrbanAgentPage() {
         origin={routeOrigin}
         loading={Boolean(routeLoadingId)}
         error={routeError}
-        onClose={() => setRouteModalOpen(false)}
+        onClose={closeRouteModal}
         onSelectRoute={setSelectedRouteIndex}
       />
     </div>
@@ -2177,9 +2240,13 @@ function savedTripFallbackPreview(saved: SavedItinerary): TripPreviewResponse {
   );
   const stops: TripPreviewStop[] = sourceItems.map((item, index) => {
     const snapshot = item.poiSnapshot || {};
-    const lat = Number(snapshot.lat);
-    const lon = Number(snapshot.lon);
-    const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lon);
+    const snapshotRecord = valueRecord(snapshot);
+    const snapshotLocation = valueRecord(snapshotRecord.location);
+    const coordinates = normalizeCoordinatePair(
+      snapshotLocation.lat ?? snapshotRecord.lat,
+      snapshotLocation.lon ?? snapshotRecord.lon ?? snapshotRecord.lng,
+    );
+    const { lat, lon, hasCoordinates } = coordinates;
     return {
       stopId: item.stopId || `saved-${saved.tripId}-${item.poiId}-${index + 1}`,
       order: item.order || index + 1,
