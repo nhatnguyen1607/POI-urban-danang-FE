@@ -1953,6 +1953,7 @@ export default function UrbanAgentPage() {
                               selectedStopId={selectedPreviewStopId}
                               authenticated={Boolean(user)}
                               transport={toTripPreviewTransport(transport)}
+                              isVisible={mobilePreviewView === 'map'}
                               onSelectStop={(stopId) => {
                                 setSelectedPreviewStopId(stopId);
                                 setMobilePreviewView('timeline');

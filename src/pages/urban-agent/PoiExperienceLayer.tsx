@@ -384,6 +384,7 @@ export function PoiExperienceLayer({
   const [routeLoading, setRouteLoading] = useState(false);
   const [arrivalConfirmed, setArrivalConfirmed] = useState(false);
   const watchIdRef = useRef<number | null>(null);
+  const watchSessionRef = useRef(0);
   const visitRef = useRef<VisitState | null>(null);
   const travelRef = useRef<TravelState | null>(null);
   const loggedSearchRef = useRef('');
@@ -423,6 +424,7 @@ export function PoiExperienceLayer({
   }, [targetDestination?.id]);
 
   useEffect(() => {
+    const watchSession = ++watchSessionRef.current;
     if (!trackingEnabled) {
       if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
@@ -435,6 +437,7 @@ export function PoiExperienceLayer({
     }
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
+        if (watchSession !== watchSessionRef.current) return;
         setGpsError('');
         setRawPosition({
           lat: position.coords.latitude,
@@ -442,10 +445,14 @@ export function PoiExperienceLayer({
           accuracy: position.coords.accuracy,
         });
       },
-      (error) => setGpsError(error.message || ui.gpsFailed),
+      (error) => {
+        if (watchSession !== watchSessionRef.current) return;
+        setGpsError(error.message || ui.gpsFailed);
+      },
       { enableHighAccuracy: true, maximumAge: 4000, timeout: 12000 },
     );
     return () => {
+      if (watchSessionRef.current === watchSession) watchSessionRef.current += 1;
       if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     };

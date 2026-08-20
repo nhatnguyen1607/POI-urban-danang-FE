@@ -101,17 +101,42 @@ function SelectedStopPan({
   return null;
 }
 
+function PreviewMapResize({ isVisible }: { isVisible: boolean }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+    const invalidateSize = () => {
+      window.requestAnimationFrame(() => map.invalidateSize({ animate: false }));
+    };
+    const observer = new ResizeObserver(invalidateSize);
+
+    observer.observe(container);
+    window.addEventListener('resize', invalidateSize);
+    invalidateSize();
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', invalidateSize);
+    };
+  }, [isVisible, map]);
+
+  return null;
+}
+
 export function TripPreviewDayMap({
   dayStops,
   selectedStopId,
   authenticated,
   transport,
+  isVisible,
   onSelectStop,
 }: {
   dayStops: TripPreviewDayMapStop[];
   selectedStopId: string;
   authenticated: boolean;
   transport: string;
+  isVisible: boolean;
   onSelectStop: (stopId: string) => void;
 }) {
   const routeRequestIdRef = useRef(0);
@@ -224,6 +249,7 @@ export function TripPreviewDayMap({
       {positions.length ? (
         <div className="h-[420px] min-h-[320px]">
           <MapContainer center={positions[0]} zoom={13} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
+            <PreviewMapResize isVisible={isVisible} />
             <PreviewMapBounds positions={boundsPositions} />
             <SelectedStopPan selectedPosition={selectedPosition ? [selectedPosition.poi.lat, selectedPosition.poi.lon] : null} />
             <TileLayer
