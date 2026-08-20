@@ -1,15 +1,17 @@
+import { apiClient } from '../../utils/apiClient';
+
 export type TravelerRouteResult = {
   route: { coordinates: number[][] };
   distance: number;
   duration: number;
-  steps: { instruction?: string; instructions?: string }[];
+  steps: { instruction?: string; instructions?: string; name?: string }[];
   calculationSource?: string;
   illustrative?: boolean;
   esValidation: {
     valid: boolean;
     warnings: { message?: string; law?: string; severity?: string; location?: { lat: number; lng: number } }[];
     ruleTrace?: { step?: string; description?: string }[];
-    fuzzyInsights?: { road?: string; label?: string }[];
+    fuzzyInsights?: { road?: string; label?: string; score?: number }[];
     totalRulesChecked?: number;
   };
 };
@@ -26,15 +28,33 @@ export type TravelerActionPoi = {
   hasCoordinates?: boolean;
 };
 
+export function normalizeCoordinatePair(latValue: unknown, lonValue: unknown) {
+  const lat = latValue === null || latValue === undefined || latValue === ''
+    ? Number.NaN
+    : Number(latValue);
+  const lon = lonValue === null || lonValue === undefined || lonValue === ''
+    ? Number.NaN
+    : Number(lonValue);
+  const hasCoordinates = Number.isFinite(lat)
+    && Number.isFinite(lon)
+    && !(lat === 0 && lon === 0)
+    && lat >= -90
+    && lat <= 90
+    && lon >= -180
+    && lon <= 180;
+  return { lat, lon, hasCoordinates };
+}
+
 export function hasValidPoiCoordinates(poi: Pick<TravelerActionPoi, 'lat' | 'lon' | 'hasCoordinates'>) {
-  return poi.hasCoordinates !== false && Number.isFinite(poi.lat) && Number.isFinite(poi.lon);
+  return poi.hasCoordinates !== false && normalizeCoordinatePair(poi.lat, poi.lon).hasCoordinates;
 }
 
 export function routeCoordinates(route?: TravelerRouteResult | null) {
   return (route?.route?.coordinates || [])
     .filter((coordinate) => Array.isArray(coordinate) && coordinate.length >= 2)
-    .map((coordinate) => [Number(coordinate[1]), Number(coordinate[0])] as [number, number])
-    .filter(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon));
+    .map((coordinate) => normalizeCoordinatePair(coordinate[1], coordinate[0]))
+    .filter((coordinate) => coordinate.hasCoordinates)
+    .map(({ lat, lon }) => [lat, lon] as [number, number]);
 }
 
 function valueRecord(value: unknown): Record<string, unknown> {
@@ -67,6 +87,35 @@ export function normalizeTravelerRoute(input: unknown): TravelerRouteResult | nu
   };
 }
 
+export async function requestTravelerRoadRoute({
+  origin,
+  destination,
+  transport,
+}: {
+  origin: { lat: number; lon: number };
+  destination: { lat: number; lon: number };
+  transport?: string;
+}) {
+  const normalizedOrigin = normalizeCoordinatePair(origin.lat, origin.lon);
+  const normalizedDestination = normalizeCoordinatePair(destination.lat, destination.lon);
+  if (!normalizedOrigin.hasCoordinates || !normalizedDestination.hasCoordinates) {
+    throw new Error('Không có đủ tọa độ hợp lệ để tính tuyến đường.');
+  }
+
+  const response = await apiClient.post('/api/route', {
+    origin: { lat: normalizedOrigin.lat, lng: normalizedOrigin.lon },
+    destination: { lat: normalizedDestination.lat, lng: normalizedDestination.lon },
+    transport,
+  });
+  const responseRecord = valueRecord(response);
+  const routes = Array.isArray(responseRecord.routes) ? responseRecord.routes : [];
+  const route = normalizeTravelerRoute(routes[0] ?? response);
+  if (!route || route.illustrative || routeCoordinates(route).length < 2) {
+    throw new Error('Máy chủ chưa trả về tuyến đường bộ hợp lệ.');
+  }
+  return route;
+}
+
 export function getCurrentLocationOnce(language: 'vi' | 'en' = 'vi') {
   return new Promise<{ lat: number; lng: number }>((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -91,8 +140,9 @@ export function buildGrabBookingUrl(
   pickup?: { lat: number; lng: number } | null,
 ) {
   if (!hasValidPoiCoordinates(poi)) return null;
-  const pickupParams = pickup && Number.isFinite(pickup.lat) && Number.isFinite(pickup.lng)
-    ? `&pickupLatitude=${pickup.lat}&pickupLongitude=${pickup.lng}`
+  const normalizedPickup = pickup ? normalizeCoordinatePair(pickup.lat, pickup.lng) : null;
+  const pickupParams = normalizedPickup?.hasCoordinates
+    ? `&pickupLatitude=${normalizedPickup.lat}&pickupLongitude=${normalizedPickup.lon}`
     : '';
   return `grab://open?screenType=BOOKING${pickupParams}`
     + `&dropOffLatitude=${poi.lat}`
