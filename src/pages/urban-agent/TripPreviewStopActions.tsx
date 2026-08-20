@@ -21,7 +21,7 @@ export function TripPreviewStopActions({
         type="button"
         onClick={onMoveUp}
         disabled={disabled || !canMoveUp}
-        className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-300 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-teal-500 hover:text-teal-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <ArrowUp size={13} />
         Lên
@@ -30,7 +30,7 @@ export function TripPreviewStopActions({
         type="button"
         onClick={onMoveDown}
         disabled={disabled || !canMoveDown}
-        className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-300 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-teal-500 hover:text-teal-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <ArrowDown size={13} />
         Xuống
@@ -39,7 +39,7 @@ export function TripPreviewStopActions({
         type="button"
         onClick={onRemove}
         disabled={disabled}
-        className="inline-flex items-center gap-1 rounded-lg border border-rose-300/40 bg-rose-300/10 px-2.5 py-1.5 text-xs font-semibold text-rose-100 transition hover:bg-rose-300/20 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Trash2 size={13} />
         Bỏ điểm
