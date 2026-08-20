@@ -304,22 +304,6 @@ function isFiniteCoord(lat?: number | null, lon?: number | null) {
   return normalizeCoordinatePair(lat, lon).hasCoordinates;
 }
 
-function haversineMeters(
-  a: { lat: number; lon?: number; lng?: number },
-  b: { lat: number; lon?: number; lng?: number },
-) {
-  const earthRadiusM = 6371000;
-  const toRadians = (value: number) => (value * Math.PI) / 180;
-  const lat1 = toRadians(a.lat);
-  const lat2 = toRadians(b.lat);
-  const deltaLat = toRadians(b.lat - a.lat);
-  const deltaLon = toRadians((b.lon ?? b.lng ?? 0) - (a.lon ?? a.lng ?? 0));
-  const value =
-    Math.sin(deltaLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
-  return earthRadiusM * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
-}
-
 function valueRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
@@ -396,36 +380,6 @@ function renumberTripPreview(preview: TripPreviewResponse): TripPreviewResponse 
         stopCount: dayStops.length,
       };
     }),
-  };
-}
-
-function buildIllustrativeRoute(stops: PoiResult[]): TravelerRouteResult | null {
-  const validStops = stops.filter((poi) => isFiniteCoord(poi.lat, poi.lon));
-  if (validStops.length < 2) return null;
-  const coordinates = validStops.map((poi) => [poi.lon, poi.lat]);
-  const distanceMeters = validStops.slice(1).reduce((sum, stop, index) => {
-    const previous = validStops[index];
-    return sum + haversineMeters(previous, stop);
-  }, 0);
-  return {
-    route: { coordinates },
-    distance: distanceMeters,
-    duration: Math.round((distanceMeters / 1000 / 20) * 3600),
-    steps: [{ instruction: 'Đường nối minh họa giữa các điểm dừng; không phải chỉ đường theo đường bộ.' }],
-    calculationSource: 'trip-preview-illustrative-polyline',
-    illustrative: true,
-    esValidation: {
-      valid: true,
-      warnings: [
-        {
-          message: 'Polyline minh họa nối các điểm theo tọa độ stop, không phải route đường bộ chính xác.',
-          severity: 'info',
-        },
-      ],
-      ruleTrace: [],
-      fuzzyInsights: [],
-      totalRulesChecked: 0,
-    },
   };
 }
 
@@ -1158,34 +1112,6 @@ export default function UrbanAgentPage() {
     }
   };
 
-  const openPreviewDayMap = (dayNumber: number, preview = activeTripPreview) => {
-    if (!preview) return;
-    const stops = preview.stops
-      .filter((stop) => stop.dayNumber === dayNumber)
-      .map((stop, index) => poiFromV2({ poi: stop.poi, reason: stop.reason }, index))
-      .filter((poi) => poi.hasCoordinates !== false && isFiniteCoord(poi.lat, poi.lon));
-    if (!stops.length) {
-      setError(language === 'vi' ? 'Ngày này chưa có điểm có tọa độ để hiển thị.' : 'This day has no stops with coordinates.');
-      return;
-    }
-    const illustrativeRoute = buildIllustrativeRoute(stops);
-    routeRequestIdRef.current += 1;
-    setRouteLoadingId('');
-    setSelectedPreviewDay(dayNumber);
-    const selectedDay = preview.days.find((day) => day.dayNumber === dayNumber);
-    setRouteModalTitle(
-      selectedDay?.date
-        ? `Bản đồ ${formatVietnameseDate(selectedDay.date)}`
-        : `Bản đồ ngày ${dayNumber}`,
-    );
-    setRouteStops(stops);
-    setRouteRoutes(illustrativeRoute ? [illustrativeRoute] : []);
-    setSelectedRouteIndex(0);
-    setRouteOrigin(null);
-    setRouteError('');
-    setRouteModalOpen(true);
-  };
-
   const openRecommendationMap = (poiId: string) => {
     const recommendationIndex = travelerRecommendations.findIndex((item, index) => poiFromV2(item, index).id === poiId);
     if (recommendationIndex < 0) return;
@@ -1806,17 +1732,6 @@ export default function UrbanAgentPage() {
                       {openedSavedItineraryId ? t.saveChanges : t.saveItinerary}
                     </button>
                   )}
-                  {activeTripPreview && (
-                    <button
-                      type="button"
-                      onClick={() => openPreviewDayMap(selectedPreviewDay)}
-                      disabled={!activeTripPreview.stops.some((stop) => stop.dayNumber === selectedPreviewDay)}
-                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-500 hover:text-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Map size={15} />
-                      Mở bản đồ lớn
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -1941,15 +1856,6 @@ export default function UrbanAgentPage() {
                               {day.dailyWindow ? `${day.dailyWindow.start} - ${day.dailyWindow.end}` : 'Khung giờ chưa biết'} · {humanizeFeasibility(day.feasibilityStatus)}
                             </p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => openPreviewDayMap(day.dayNumber)}
-                            disabled={!dayStops.length}
-                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-500 hover:text-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <Route size={16} />
-                            Mở bản đồ lớn
-                          </button>
                         </div>
                         <TravelerItineraryViewSwitch value={mobilePreviewView} onChange={setMobilePreviewView} />
                         <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(320px,1fr)_420px]">
@@ -2045,6 +1951,8 @@ export default function UrbanAgentPage() {
                             <TripPreviewDayMap
                               dayStops={dayStops}
                               selectedStopId={selectedPreviewStopId}
+                              authenticated={Boolean(user)}
+                              transport={toTripPreviewTransport(transport)}
                               onSelectStop={(stopId) => {
                                 setSelectedPreviewStopId(stopId);
                                 setMobilePreviewView('timeline');

@@ -1,15 +1,17 @@
+import { apiClient } from '../../utils/apiClient';
+
 export type TravelerRouteResult = {
   route: { coordinates: number[][] };
   distance: number;
   duration: number;
-  steps: { instruction?: string; instructions?: string }[];
+  steps: { instruction?: string; instructions?: string; name?: string }[];
   calculationSource?: string;
   illustrative?: boolean;
   esValidation: {
     valid: boolean;
     warnings: { message?: string; law?: string; severity?: string; location?: { lat: number; lng: number } }[];
     ruleTrace?: { step?: string; description?: string }[];
-    fuzzyInsights?: { road?: string; label?: string }[];
+    fuzzyInsights?: { road?: string; label?: string; score?: number }[];
     totalRulesChecked?: number;
   };
 };
@@ -83,6 +85,35 @@ export function normalizeTravelerRoute(input: unknown): TravelerRouteResult | nu
       totalRulesChecked: Number(validation.totalRulesChecked) || 0,
     },
   };
+}
+
+export async function requestTravelerRoadRoute({
+  origin,
+  destination,
+  transport,
+}: {
+  origin: { lat: number; lon: number };
+  destination: { lat: number; lon: number };
+  transport?: string;
+}) {
+  const normalizedOrigin = normalizeCoordinatePair(origin.lat, origin.lon);
+  const normalizedDestination = normalizeCoordinatePair(destination.lat, destination.lon);
+  if (!normalizedOrigin.hasCoordinates || !normalizedDestination.hasCoordinates) {
+    throw new Error('Không có đủ tọa độ hợp lệ để tính tuyến đường.');
+  }
+
+  const response = await apiClient.post('/api/route', {
+    origin: { lat: normalizedOrigin.lat, lng: normalizedOrigin.lon },
+    destination: { lat: normalizedDestination.lat, lng: normalizedDestination.lon },
+    transport,
+  });
+  const responseRecord = valueRecord(response);
+  const routes = Array.isArray(responseRecord.routes) ? responseRecord.routes : [];
+  const route = normalizeTravelerRoute(routes[0] ?? response);
+  if (!route || route.illustrative || routeCoordinates(route).length < 2) {
+    throw new Error('Máy chủ chưa trả về tuyến đường bộ hợp lệ.');
+  }
+  return route;
 }
 
 export function getCurrentLocationOnce(language: 'vi' | 'en' = 'vi') {
