@@ -325,11 +325,14 @@ export async function recordSearchLog({
   selectedPoiId?: string;
 }) {
   if (!db) return;
-  const normalized = normalizeSearchText(query);
+  // House-number queries can identify a precise private address; keep only a
+  // coarse event marker in analytics while the live search still uses the query.
+  const analyticsQuery = /\d/.test(query) ? '[address-redacted]' : query.trim().slice(0, 120);
+  const normalized = normalizeSearchText(analyticsQuery);
   if (normalized.length < 2) return;
   await addDoc(collection(db, 'search_logs'), {
     userId: user?.uid || null,
-    query: query.trim(),
+    query: analyticsQuery,
     normalizedQuery: normalized,
     tokens: normalized.split(' ').filter(Boolean).slice(0, 12),
     resultCount,
