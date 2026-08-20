@@ -19,7 +19,6 @@ import {
   X,
 } from 'lucide-react';
 import { useRef } from 'react';
-import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { apiClient } from '../../utils/apiClient';
@@ -38,6 +37,14 @@ import {
   humanizeWarning,
   uniquePresentationLabels,
 } from './travelerPresentation';
+import { TravelerRouteModal } from './TravelerRouteModal';
+import { TravelerStopTravelActions } from './TravelerStopTravelActions';
+import {
+  buildGrabBookingUrl,
+  getCurrentLocationOnce,
+  normalizeTravelerRoute,
+  type TravelerRouteResult,
+} from './travelerCapabilities';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -193,22 +200,6 @@ interface BusinessArea {
   };
 }
 
-interface RouteResult {
-  route: { coordinates: number[][] };
-  distance: number;
-  duration: number;
-  steps: { instruction?: string; instructions?: string }[];
-  calculationSource?: string;
-  illustrative?: boolean;
-  esValidation: {
-    valid: boolean;
-    warnings: { message?: string; law?: string; severity?: string; location?: { lat: number; lng: number } }[];
-    ruleTrace?: { step?: string; description?: string }[];
-    fuzzyInsights?: { road?: string; label?: string }[];
-    totalRulesChecked?: number;
-  };
-}
-
 interface SavedItinerary {
   tripId: string;
   title: string;
@@ -226,8 +217,10 @@ interface SavedItinerary {
   preview?: TripPreviewResponse | null;
   itinerary?: ItineraryItem[];
   stops?: {
+    stopId?: string;
     poiId: string;
     order: number;
+    dayNumber?: number;
     stayMinutes: number;
     reason: string;
     addedBy: 'agent' | 'user';
@@ -306,21 +299,6 @@ function createTripDayWindows(dayCount: number, startTime: string, endTime: stri
   });
 }
 
-function FitBounds({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!bounds) return;
-    window.requestAnimationFrame(() => {
-      try {
-        map.fitBounds(bounds, { padding: [44, 44] });
-      } catch {
-        // Leaflet can throw if the modal/map is unmounting while fitBounds runs.
-      }
-    });
-  }, [bounds, map]);
-  return null;
-}
-
 function isFiniteCoord(lat?: number, lon?: number) {
   return Number.isFinite(lat) && Number.isFinite(lon);
 }
@@ -339,12 +317,6 @@ function haversineMeters(
     Math.sin(deltaLat / 2) ** 2 +
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
   return earthRadiusM * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
-}
-
-function routeCoordinates(route?: RouteResult) {
-  return (route?.route?.coordinates || [])
-    .filter((coord: number[]) => Array.isArray(coord) && Number.isFinite(coord[0]) && Number.isFinite(coord[1]))
-    .map((coord: number[]) => [coord[1], coord[0]] as [number, number]);
 }
 
 function valueRecord(value: unknown): Record<string, unknown> {
@@ -427,7 +399,7 @@ function renumberTripPreview(preview: TripPreviewResponse): TripPreviewResponse 
   };
 }
 
-function buildIllustrativeRoute(stops: PoiResult[]): RouteResult | null {
+function buildIllustrativeRoute(stops: PoiResult[]): TravelerRouteResult | null {
   const validStops = stops.filter((poi) => isFiniteCoord(poi.lat, poi.lon));
   if (validStops.length < 2) return null;
   const coordinates = validStops.map((poi) => [poi.lon, poi.lat]);
@@ -646,7 +618,9 @@ export default function UrbanAgentPage() {
   const [recommendationLoading, setRecommendationLoading] = useState(false);
   const [recommendationsRequested, setRecommendationsRequested] = useState(false);
   const [recommendationError, setRecommendationError] = useState('');
+  const [recommendationPanelOpen, setRecommendationPanelOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewPhase, setPreviewPhase] = useState<'idle' | 'discovering' | 'scheduling' | 'updating'>('idle');
   const [previewError, setPreviewError] = useState('');
   const [selectedPreviewDay, setSelectedPreviewDay] = useState(1);
   const [selectedPreviewStopId, setSelectedPreviewStopId] = useState('');
@@ -656,9 +630,13 @@ export default function UrbanAgentPage() {
   const [weather, setWeather] = useState<any>(null);
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [routeModalTitle, setRouteModalTitle] = useState('Bản đồ chuyến đi');
-  const [routeRoutes, setRouteRoutes] = useState<RouteResult[]>([]);
-  const [routeBounds, setRouteBounds] = useState<L.LatLngBoundsExpression | null>(null);
+  const [routeRoutes, setRouteRoutes] = useState<TravelerRouteResult[]>([]);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
+  const [routeOrigin, setRouteOrigin] = useState<[number, number] | null>(null);
+  const [routeLoadingId, setRouteLoadingId] = useState('');
+  const [routeError, setRouteError] = useState('');
   const [routeStops, setRouteStops] = useState<PoiResult[]>([]);
+  const [bookingGrabId, setBookingGrabId] = useState('');
   const [savedItineraries, setSavedItineraries] = useState<SavedItinerary[]>([]);
   const [openedSavedItineraryId, setOpenedSavedItineraryId] = useState('');
   const [savingItinerary, setSavingItinerary] = useState(false);
@@ -667,6 +645,7 @@ export default function UrbanAgentPage() {
   const [deletingTripId, setDeletingTripId] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
   const previewStopRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const recommendationPanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setQuery(roleCopy[role].sample);
@@ -675,6 +654,7 @@ export default function UrbanAgentPage() {
     setEditableTripPreview(null);
     setTripPreviewDirty(false);
     setTripEditMessage('');
+    setRecommendationPanelOpen(false);
     setBusinessAreas([]);
     setRouteModalOpen(false);
     setRouteStops([]);
@@ -812,7 +792,10 @@ export default function UrbanAgentPage() {
     });
   }, [mobilePreviewView, selectedPreviewStopId]);
 
-  const tripRequestBody = () => ({
+  const tripRequestBody = (overrides: {
+    mustIncludePoiIds?: string[];
+    excludePoiIds?: string[];
+  } = {}) => ({
     cityId: 'da-nang',
     query: query.trim(),
     trip: {
@@ -829,17 +812,25 @@ export default function UrbanAgentPage() {
     },
     constraints: {
       maxStopsPerDay,
-      mustIncludePoiIds,
-      excludePoiIds,
+      mustIncludePoiIds: overrides.mustIncludePoiIds ?? mustIncludePoiIds,
+      excludePoiIds: overrides.excludePoiIds ?? excludePoiIds,
     },
     recommendationOptions: {
       limit: Math.min(12, tripDayCount * maxStopsPerDay + 3),
     },
   });
 
+  const markTripDirty = (message = 'Bạn đã thay đổi chuyến đi. Cập nhật lịch trình để tính toán lại.') => {
+    if (!activeTripPreview) return;
+    setTripPreviewDirty(true);
+    setTripEditMessage(message);
+  };
+
   const removeTripConstraintPoi = (poiId: string) => {
+    const affectsCurrentTrip = scheduledPoiIds.has(poiId) || mustIncludePoiIds.includes(poiId);
     setMustIncludePoiIds((items) => items.filter((id) => id !== poiId));
     setExcludePoiIds((items) => items.filter((id) => id !== poiId));
+    if (affectsCurrentTrip) markTripDirty();
   };
 
   const tripConstraintLabel = (poiId: string) => {
@@ -856,6 +847,7 @@ export default function UrbanAgentPage() {
       }
       return [...terms, interest].join(', ');
     });
+    markTripDirty();
   };
 
   const selectPreviewDay = (dayNumber: number, preview = activeTripPreview) => {
@@ -928,37 +920,96 @@ export default function UrbanAgentPage() {
     setSaveMessage(message);
   };
 
+  const applyCalculatedTripPreview = (preview: TripPreviewResponse, requestId = '') => {
+    const calculated = renumberTripPreview(preview);
+    setTripPreview(calculated);
+    setEditableTripPreview(calculated);
+    setTripPreviewDirty(false);
+    setTripEditMessage('');
+    if (requestId) setTravelerRequestId(requestId);
+    const selectedStillValid = calculated.days.some((day) => day.dayNumber === selectedPreviewDay);
+    const nextDay = selectedStillValid ? selectedPreviewDay : calculated.days[0]?.dayNumber || 1;
+    setSelectedPreviewDay(nextDay);
+    setSelectedPreviewStopId(calculated.stops
+      .filter((stop) => stop.dayNumber === nextDay)
+      .sort((a, b) => a.order - b.order)[0]?.stopId || '');
+  };
+
+  async function runTripScheduler({
+    nextMustIncludePoiIds = mustIncludePoiIds,
+    nextExcludePoiIds = excludePoiIds,
+    successMessage = '',
+  }: {
+    nextMustIncludePoiIds?: string[];
+    nextExcludePoiIds?: string[];
+    successMessage?: string;
+  } = {}) {
+    setPreviewLoading(true);
+    setPreviewPhase(activeTripPreview ? 'updating' : 'scheduling');
+    setPreviewError('');
+    setError('');
+    try {
+      if (openedSavedItineraryId) {
+        await apiClient.patch(
+          `/api/v2/trips/${openedSavedItineraryId}`,
+          currentTripPayload({
+            mustIncludePoiIds: nextMustIncludePoiIds,
+            excludePoiIds: nextExcludePoiIds,
+            needsReplan: true,
+          }),
+        );
+        const response = await apiClient.post(`/api/v2/trips/${openedSavedItineraryId}/replan`);
+        const savedTrip = response?.data?.trip as SavedItinerary | undefined;
+        if (!savedTrip) {
+          throw new Error(language === 'vi' ? 'Chưa cập nhật được lịch trình đã lưu.' : 'Could not update the saved trip.');
+        }
+        applySavedTripLifecycleState(
+          savedTrip,
+          successMessage || (language === 'vi' ? 'Đã cập nhật lịch trình đã lưu.' : 'Saved trip updated.'),
+        );
+        setTravelerRequestId(response?.meta?.requestId || '');
+        return savedTrip.preview || null;
+      }
+
+      const response = await apiClient.post('/api/v2/trips/preview', tripRequestBody({
+        mustIncludePoiIds: nextMustIncludePoiIds,
+        excludePoiIds: nextExcludePoiIds,
+      }));
+      const preview = response?.data?.trip as TripPreviewResponse | undefined;
+      if (!preview) throw new Error('Chưa tạo được lịch trình từ phản hồi máy chủ.');
+      applyCalculatedTripPreview(preview, response?.meta?.requestId || '');
+      if (successMessage) setSaveMessage(successMessage);
+      return preview;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Chưa thể cập nhật lịch trình. Vui lòng thử lại.';
+      setPreviewError(message);
+      throw caught;
+    } finally {
+      setPreviewLoading(false);
+      setPreviewPhase('idle');
+    }
+  }
+
   const includeRecommendationPoi = async (poiId: string) => {
     const existsInRecommendations = travelerRecommendations.some((item, index) => poiFromV2(item, index).id === poiId);
-    if (!existsInRecommendations || excludePoiIds.includes(poiId) || scheduledPoiIds.has(poiId) || mustIncludePoiIds.includes(poiId)) return;
-    if (openedSavedItineraryId) {
-      setTripLifecycleLoading(true);
-      setSaveMessage('');
-      try {
-        const response = await apiClient.post(`/api/v2/trips/${openedSavedItineraryId}/stops`, {
-          poiId,
-          dayNumber: selectedPreviewDay,
-        });
-        const savedTrip = response?.data?.trip as SavedItinerary | undefined;
-        if (savedTrip) {
-          applySavedTripLifecycleState(
-            savedTrip,
-            language === 'vi'
-              ? 'Đã thêm điểm vào lịch đã lưu. Hãy tạo lại lịch trình để hệ thống tính toán lại.'
-              : 'Stop added to the saved trip. Replan to recalculate it.',
-          );
-        }
-      } catch (error) {
-        setSaveMessage(error instanceof Error ? error.message : t.saveFailed);
-      } finally {
-        setTripLifecycleLoading(false);
-      }
-      return;
-    }
-    setMustIncludePoiIds((items) => [...items, poiId]);
-    if (activeTripPreview) {
+    if (
+      previewLoading ||
+      !existsInRecommendations ||
+      excludePoiIds.includes(poiId) ||
+      scheduledPoiIds.has(poiId) ||
+      mustIncludePoiIds.includes(poiId)
+    ) return;
+    const nextMustIncludePoiIds = [...mustIncludePoiIds, poiId];
+    setMustIncludePoiIds(nextMustIncludePoiIds);
+    markTripDirty('Đang thêm địa điểm và tính toán lại thời gian cho chuyến đi.');
+    try {
+      await runTripScheduler({
+        nextMustIncludePoiIds,
+        successMessage: 'Đã thêm địa điểm và cập nhật lại lịch trình.',
+      });
+    } catch {
       setTripPreviewDirty(true);
-      setTripEditMessage('Bạn đã thêm một điểm vào lựa chọn. Hãy tạo lại lịch trình để hệ thống tính toán lại.');
+      setTripEditMessage('Đã giữ lựa chọn mới. Hãy thử cập nhật lịch trình lại.');
     }
   };
 
@@ -972,45 +1023,32 @@ export default function UrbanAgentPage() {
     }
     setMustIncludePoiIds((items) => items.filter((id) => id !== poiId));
     setExcludePoiIds((items) => [...items, poiId]);
-    if (activeTripPreview) {
-      setTripPreviewDirty(true);
-      setTripEditMessage('Bạn đã loại một điểm khỏi lựa chọn. Hãy tạo lại lịch trình để hệ thống tính toán lại.');
-    }
   };
 
   const removeScheduledStop = async (stop: TripPreviewStop) => {
-    if (!activeTripPreview) return;
-    if (openedSavedItineraryId) {
-      setTripLifecycleLoading(true);
-      setSaveMessage('');
-      try {
-        const response = await apiClient.delete(`/api/v2/trips/${openedSavedItineraryId}/stops/${stop.stopId}`);
-        const savedTrip = response?.data?.trip as SavedItinerary | undefined;
-        if (savedTrip) {
-          applySavedTripLifecycleState(
-            savedTrip,
-            language === 'vi'
-              ? 'Đã bỏ điểm khỏi lịch đã lưu. Hãy tạo lại lịch trình để hệ thống tính toán lại.'
-              : 'Stop removed from the saved trip. Replan to recalculate it.',
-          );
-        }
-      } catch (error) {
-        setSaveMessage(error instanceof Error ? error.message : t.saveFailed);
-      } finally {
-        setTripLifecycleLoading(false);
-      }
-      return;
-    }
+    if (!activeTripPreview || previewLoading) return;
     const poiId = poiIdFromTripStop(stop);
+    const nextMustIncludePoiIds = mustIncludePoiIds.filter((id) => id !== poiId);
+    const nextExcludePoiIds = poiId && !excludePoiIds.includes(poiId) ? [...excludePoiIds, poiId] : excludePoiIds;
     const nextPreview = {
       ...activeTripPreview,
       stops: activeTripPreview.stops.filter((item) => item.stopId !== stop.stopId),
     };
     if (poiId) {
-      setMustIncludePoiIds((items) => items.filter((id) => id !== poiId));
-      setExcludePoiIds((items) => (items.includes(poiId) ? items : [...items, poiId]));
+      setMustIncludePoiIds(nextMustIncludePoiIds);
+      setExcludePoiIds(nextExcludePoiIds);
     }
-    applyEditableTripPreview(nextPreview, 'Bạn đã thay đổi lịch trình. Hãy tạo lại lịch trình để hệ thống tính toán lại.');
+    applyEditableTripPreview(nextPreview, 'Đang bỏ địa điểm và tính toán lại thời gian cho chuyến đi.');
+    try {
+      await runTripScheduler({
+        nextMustIncludePoiIds,
+        nextExcludePoiIds,
+        successMessage: 'Đã bỏ địa điểm và cập nhật lại lịch trình.',
+      });
+    } catch {
+      setTripPreviewDirty(true);
+      setTripEditMessage('Địa điểm đã được bỏ khỏi bản chỉnh sửa. Hãy thử cập nhật lịch trình lại.');
+    }
   };
 
   const moveScheduledStop = async (stop: TripPreviewStop, direction: -1 | 1) => {
@@ -1023,7 +1061,8 @@ export default function UrbanAgentPage() {
     if (index < 0 || nextIndex < 0 || nextIndex >= dayStops.length) return;
     const reorderedDayStops = [...dayStops];
     [reorderedDayStops[index], reorderedDayStops[nextIndex]] = [reorderedDayStops[nextIndex], reorderedDayStops[index]];
-    if (openedSavedItineraryId) {
+    const hasPersistedStopIds = reorderedDayStops.every((item) => item.stopId && !item.stopId.startsWith('saved-'));
+    if (openedSavedItineraryId && hasPersistedStopIds) {
       setTripLifecycleLoading(true);
       setSaveMessage('');
       try {
@@ -1059,30 +1098,38 @@ export default function UrbanAgentPage() {
     applyEditableTripPreview(nextPreview, 'Lịch trình đã được chỉnh thủ công và chưa được tính toán lại.');
   };
 
+  const requestTravelerRecommendations = async () => {
+    const response = await apiClient.post('/api/v2/recommendations', {
+      cityId: 'da-nang',
+      query: query.trim(),
+      limit: Math.min(12, tripDayCount * maxStopsPerDay + 6),
+      context: {},
+    });
+    const recommendations = response?.data?.recommendations || [];
+    setTravelerRecommendations(recommendations);
+    setTravelerRequestId(response?.meta?.requestId || '');
+    setRecommendationsRequested(true);
+    return recommendations as TravelerRecommendationV2[];
+  };
+
   const loadTravelerRecommendations = async () => {
     if (travelerValidationError) {
       setError(travelerValidationError);
       return;
     }
+    setRecommendationPanelOpen(true);
     setRecommendationLoading(true);
     setRecommendationsRequested(true);
     setRecommendationError('');
     setError('');
     try {
-      const response = await apiClient.post('/api/v2/recommendations', {
-        cityId: 'da-nang',
-        query: query.trim(),
-        limit: Math.min(12, tripDayCount * maxStopsPerDay + 6),
-        context: {},
-      });
-      const recommendations = response?.data?.recommendations || [];
-      setTravelerRecommendations(recommendations);
-      setTravelerRequestId(response?.meta?.requestId || '');
+      await requestTravelerRecommendations();
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Chưa lấy được gợi ý điểm đến. Vui lòng thử lại.';
       setRecommendationError(message);
     } finally {
       setRecommendationLoading(false);
+      window.requestAnimationFrame(() => recommendationPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     }
   };
 
@@ -1106,7 +1153,9 @@ export default function UrbanAgentPage() {
     );
     setRouteStops(stops);
     setRouteRoutes(illustrativeRoute ? [illustrativeRoute] : []);
-    setRouteBounds(L.latLngBounds(stops.map((poi) => [poi.lat, poi.lon] as [number, number])));
+    setSelectedRouteIndex(0);
+    setRouteOrigin(null);
+    setRouteError('');
     setRouteModalOpen(true);
   };
 
@@ -1118,7 +1167,9 @@ export default function UrbanAgentPage() {
     setRouteModalTitle(poi.title);
     setRouteStops([poi]);
     setRouteRoutes([]);
-    setRouteBounds(L.latLngBounds([[poi.lat, poi.lon]]));
+    setSelectedRouteIndex(0);
+    setRouteOrigin(null);
+    setRouteError('');
     setRouteModalOpen(true);
   };
 
@@ -1131,60 +1182,57 @@ export default function UrbanAgentPage() {
     setPreviewError('');
     setError('');
     try {
-      if (openedSavedItineraryId) {
-        const response = await apiClient.post(`/api/v2/trips/${openedSavedItineraryId}/replan`);
-        const savedTrip = response?.data?.trip as SavedItinerary | undefined;
-        if (!savedTrip) throw new Error(language === 'vi' ? 'Chưa tạo lại được lịch trình đã lưu.' : 'Could not replan the saved trip.');
-        applySavedTripLifecycleState(
-          savedTrip,
-          language === 'vi' ? 'Đã tạo lại lịch trình đã lưu.' : 'Saved trip replanned.',
-        );
-        setTravelerRequestId(response?.meta?.requestId || '');
-        return;
+      if (!activeTripPreview) {
+        setPreviewPhase('discovering');
+        setRecommendationError('');
+        await requestTravelerRecommendations();
       }
-      const response = await apiClient.post('/api/v2/trips/preview', tripRequestBody());
-      const preview = response?.data?.trip as TripPreviewResponse | undefined;
-      if (!preview) throw new Error('Chưa tạo được lịch trình từ phản hồi máy chủ.');
-      setTripPreview(preview);
-      setEditableTripPreview(preview);
-      setTripPreviewDirty(false);
-      setTripEditMessage('');
-      setTravelerRequestId(response?.meta?.requestId || '');
-      const selectedStillValid = preview.days.some((day) => day.dayNumber === selectedPreviewDay);
-      const nextDay = selectedStillValid ? selectedPreviewDay : preview.days[0]?.dayNumber || 1;
-      setSelectedPreviewDay(nextDay);
-      setSelectedPreviewStopId(preview.stops
-        .filter((stop) => stop.dayNumber === nextDay)
-        .sort((a, b) => a.order - b.order)[0]?.stopId || '');
+      await runTripScheduler({
+        successMessage: activeTripPreview ? 'Đã cập nhật lịch trình theo các thay đổi mới.' : '',
+      });
     } catch (caught) {
       setPreviewError(caught instanceof Error ? caught.message : 'Chưa thể tạo lịch trình. Vui lòng thử lại.');
     } finally {
       setPreviewLoading(false);
+      setPreviewPhase('idle');
     }
   };
 
-  const currentTripPayload = () => ({
-    title: query.trim() || t.defaultSavedTitle,
-    cityId: 'da-nang',
-    query,
-    startDate: tripStartDate,
-    dayCount: tripDayCount,
-    dailyWindow: {
-      startTime: defaultStartTime,
-      endTime: defaultEndTime,
-    },
-    dayWindows: tripDayWindows,
-    pace,
-    transport: toTripPreviewTransport(transport),
-    includedPoiIds: mustIncludePoiIds,
-    excludedPoiIds: excludePoiIds,
-    request: tripRequestBody(),
-    preview: activeTripPreview,
-    itinerary: activeTripPreview ? previewToItinerary(activeTripPreview) : [],
-    warnings: activeTripPreview?.warnings || [],
-    status: 'saved',
-    needsReplan: tripPreviewDirty,
-  });
+  function currentTripPayload(overrides: {
+    mustIncludePoiIds?: string[];
+    excludePoiIds?: string[];
+    preview?: TripPreviewResponse | null;
+    needsReplan?: boolean;
+  } = {}) {
+    const nextMustIncludePoiIds = overrides.mustIncludePoiIds ?? mustIncludePoiIds;
+    const nextExcludePoiIds = overrides.excludePoiIds ?? excludePoiIds;
+    const nextPreview = overrides.preview === undefined ? activeTripPreview : overrides.preview;
+    return {
+      title: query.trim() || t.defaultSavedTitle,
+      cityId: 'da-nang',
+      query,
+      startDate: tripStartDate,
+      dayCount: tripDayCount,
+      dailyWindow: {
+        startTime: defaultStartTime,
+        endTime: defaultEndTime,
+      },
+      dayWindows: tripDayWindows,
+      pace,
+      transport: toTripPreviewTransport(transport),
+      includedPoiIds: nextMustIncludePoiIds,
+      excludedPoiIds: nextExcludePoiIds,
+      request: tripRequestBody({
+        mustIncludePoiIds: nextMustIncludePoiIds,
+        excludePoiIds: nextExcludePoiIds,
+      }),
+      preview: nextPreview,
+      itinerary: nextPreview ? previewToItinerary(nextPreview) : [],
+      warnings: nextPreview?.warnings || [],
+      status: 'saved',
+      needsReplan: overrides.needsReplan ?? tripPreviewDirty,
+    };
+  }
 
   const saveCurrentItinerary = async () => {
     if (!activeTripPreview?.stops.length) return;
@@ -1281,11 +1329,99 @@ export default function UrbanAgentPage() {
     }
   };
 
+  const recordFeedback = async (eventType: string, payload: Record<string, unknown>) => {
+    if (!user) return;
+    try {
+      await apiClient.post('/api/agent/feedback', { role, eventType, query, payload });
+    } catch {
+      // Feedback is useful context, but it must never interrupt trip planning.
+    }
+  };
+
+  const handleBookGrab = async (destination: PoiResult) => {
+    if (destination.hasCoordinates === false || !isFiniteCoord(destination.lat, destination.lon)) {
+      setSaveMessage('Địa điểm này chưa có tọa độ hợp lệ để mở Grab.');
+      return;
+    }
+    setBookingGrabId(destination.id);
+    setSaveMessage('');
+    try {
+      const pickup = await getCurrentLocationOnce(language);
+      const url = buildGrabBookingUrl(destination, pickup);
+      if (url) window.location.href = url;
+      void recordFeedback('grab_booking_opened', {
+        tripId: openedSavedItineraryId || null,
+        poiId: destination.id,
+        category: destination.category,
+        pickupSource: 'browser_gps',
+      });
+    } catch {
+      const url = buildGrabBookingUrl(destination);
+      if (url) window.location.href = url;
+      setSaveMessage('Grab sẽ yêu cầu bạn xác nhận điểm đón trong ứng dụng.');
+      void recordFeedback('grab_booking_opened', {
+        tripId: openedSavedItineraryId || null,
+        poiId: destination.id,
+        category: destination.category,
+        pickupSource: 'grab_app',
+        gpsUnavailable: true,
+      });
+    } finally {
+      setBookingGrabId('');
+    }
+  };
+
+  const loadExpertRoute = async (destination: PoiResult) => {
+    if (destination.hasCoordinates === false || !isFiniteCoord(destination.lat, destination.lon)) {
+      setError('Địa điểm này chưa có tọa độ hợp lệ để xem tuyến đường.');
+      return;
+    }
+    const canRoute = await requireAuthFor('Đăng nhập để xem tuyến đường bộ tham khảo trong UrbanAgent.');
+    if (!canRoute) return;
+
+    setRouteLoadingId(destination.id);
+    setRouteModalTitle(`Tuyến đường đến ${destination.title}`);
+    setRouteStops([destination]);
+    setRouteRoutes([]);
+    setSelectedRouteIndex(0);
+    setRouteOrigin(null);
+    setRouteError('');
+    setRouteModalOpen(true);
+    try {
+      const origin = await getCurrentLocationOnce(language);
+      setRouteOrigin([origin.lat, origin.lng]);
+      const response = await apiClient.post('/api/route', {
+        origin,
+        destination: { lat: destination.lat, lng: destination.lon },
+      });
+      const routePayloads: unknown[] = Array.isArray(response?.routes) ? response.routes : [response];
+      const routes = routePayloads
+        .map((route: unknown) => normalizeTravelerRoute(route))
+        .filter((route): route is TravelerRouteResult => route !== null);
+      if (!routes.length) throw new Error('Máy chủ chưa trả về tuyến đường hợp lệ.');
+      setRouteRoutes(routes);
+      void recordFeedback('route_requested', { poiId: destination.id, category: destination.category });
+    } catch (caught) {
+      setRouteError(
+        caught instanceof Error
+          ? caught.message
+          : 'Không thể tính tuyến đường. Bạn vẫn có thể mở Google Maps để chỉ đường.',
+      );
+    } finally {
+      setRouteLoadingId('');
+    }
+  };
+
   const itineraryMoveMinutes = (activeTripPreview?.stops || []).reduce((sum, stop) => (
     sum + Number(stop.travelFromPrevious?.travelDurationMinutes ?? stop.travelFromPrevious?.estimatedMinutes ?? 0)
   ), 0);
   const totalMoveMinutes = Number(activeTripPreview?.routeSummary?.totalTravelMinutes ?? itineraryMoveMinutes);
   const weatherText = formatCurrentWeather(weather, t.waiting, language);
+  const previewLoadingLabel = previewPhase === 'discovering'
+    ? 'Đang tìm địa điểm phù hợp...'
+    : previewPhase === 'updating'
+      ? 'Đang cập nhật lịch trình...'
+      : 'Đang tạo lịch trình...';
 
   return (
     <div className="customer-agent min-h-full space-y-6 text-slate-700">
@@ -1324,7 +1460,10 @@ export default function UrbanAgentPage() {
           <label className="mb-2 block text-sm font-medium text-slate-700">Bạn muốn chuyến đi như thế nào?</label>
           <textarea
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              markTripDirty();
+            }}
             placeholder="Ví dụ: cafe yên tĩnh gần biển, món địa phương, một vài điểm chụp ảnh nhẹ nhàng"
             className="min-h-[140px] w-full resize-none rounded-xl border border-slate-300 bg-white p-4 text-sm leading-6 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
           />
@@ -1354,7 +1493,10 @@ export default function UrbanAgentPage() {
                 <label className="mb-2 block text-sm font-medium text-slate-700">{t.transport}</label>
                 <select
                   value={transport}
-                  onChange={(event) => setTransport(event.target.value)}
+                  onChange={(event) => {
+                    setTransport(event.target.value);
+                    markTripDirty();
+                  }}
                   className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
                 >
                   <option value="motorbike">{t.motorbike}</option>
@@ -1382,7 +1524,10 @@ export default function UrbanAgentPage() {
                     <input
                       type="date"
                       value={tripStartDate}
-                      onChange={(event) => setTripStartDate(event.target.value)}
+                      onChange={(event) => {
+                        setTripStartDate(event.target.value);
+                        markTripDirty();
+                      }}
                       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-600"
                     />
                   </label>
@@ -1390,7 +1535,10 @@ export default function UrbanAgentPage() {
                     <span className="mb-1 block text-xs font-medium text-slate-600">Số ngày</span>
                     <select
                       value={tripDayCount}
-                      onChange={(event) => setTripDayCount(Number(event.target.value))}
+                      onChange={(event) => {
+                        setTripDayCount(Number(event.target.value));
+                        markTripDirty();
+                      }}
                       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-600"
                     >
                       {[1, 2, 3, 4, 5, 6, 7].map((value) => (
@@ -1403,7 +1551,14 @@ export default function UrbanAgentPage() {
                     <input
                       type="time"
                       value={defaultStartTime}
-                      onChange={(event) => setDefaultStartTime(event.target.value)}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setTripDayWindows((items) => items.map((item) => (
+                          item.startTime === defaultStartTime ? { ...item, startTime: nextValue } : item
+                        )));
+                        setDefaultStartTime(nextValue);
+                        markTripDirty();
+                      }}
                       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-600"
                     />
                   </label>
@@ -1412,7 +1567,14 @@ export default function UrbanAgentPage() {
                     <input
                       type="time"
                       value={defaultEndTime}
-                      onChange={(event) => setDefaultEndTime(event.target.value)}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setTripDayWindows((items) => items.map((item) => (
+                          item.endTime === defaultEndTime ? { ...item, endTime: nextValue } : item
+                        )));
+                        setDefaultEndTime(nextValue);
+                        markTripDirty();
+                      }}
                       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-600"
                     />
                   </label>
@@ -1420,7 +1582,10 @@ export default function UrbanAgentPage() {
                     <span className="mb-1 block text-xs font-medium text-slate-600">Nhịp đi</span>
                     <select
                       value={pace}
-                      onChange={(event) => setPace(event.target.value)}
+                      onChange={(event) => {
+                        setPace(event.target.value);
+                        markTripDirty();
+                      }}
                       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-600"
                     >
                       <option value="relaxed">Thong thả</option>
@@ -1432,7 +1597,10 @@ export default function UrbanAgentPage() {
                     <span className="mb-1 block text-xs font-medium text-slate-600">Số điểm tối đa mỗi ngày</span>
                     <select
                       value={maxStopsPerDay}
-                      onChange={(event) => setMaxStopsPerDay(Number(event.target.value))}
+                      onChange={(event) => {
+                        setMaxStopsPerDay(Number(event.target.value));
+                        markTripDirty();
+                      }}
                       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-600"
                     >
                       {[1, 2, 3, 4, 5, 6].map((value) => (
@@ -1452,17 +1620,23 @@ export default function UrbanAgentPage() {
                       <input
                         type="time"
                         value={window.startTime}
-                        onChange={(event) => setTripDayWindows((items) => items.map((item) => (
-                          item.dayNumber === window.dayNumber ? { ...item, startTime: event.target.value } : item
-                        )))}
+                        onChange={(event) => {
+                          setTripDayWindows((items) => items.map((item) => (
+                            item.dayNumber === window.dayNumber ? { ...item, startTime: event.target.value } : item
+                          )));
+                          markTripDirty();
+                        }}
                         className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs text-slate-900 outline-none focus:border-teal-600"
                       />
                       <input
                         type="time"
                         value={window.endTime}
-                        onChange={(event) => setTripDayWindows((items) => items.map((item) => (
-                          item.dayNumber === window.dayNumber ? { ...item, endTime: event.target.value } : item
-                        )))}
+                        onChange={(event) => {
+                          setTripDayWindows((items) => items.map((item) => (
+                            item.dayNumber === window.dayNumber ? { ...item, endTime: event.target.value } : item
+                          )));
+                          markTripDirty();
+                        }}
                         className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs text-slate-900 outline-none focus:border-teal-600"
                       />
                     </div>
@@ -1482,7 +1656,7 @@ export default function UrbanAgentPage() {
                     className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {previewLoading ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
-                    {previewLoading ? 'Đang cập nhật lịch trình...' : activeTripPreview ? 'Cập nhật lịch trình' : 'Tạo lịch trình'}
+                    {previewLoading ? previewLoadingLabel : activeTripPreview ? 'Cập nhật lịch trình' : 'Tạo lịch trình'}
                   </button>
                 </div>
               </div>
@@ -1520,18 +1694,23 @@ export default function UrbanAgentPage() {
               />
             </div>
 
-            <TravelerRecommendationPanel
-              candidates={recommendationCandidates}
-              loading={recommendationLoading}
-              requested={recommendationsRequested}
-              error={recommendationError}
-              disabled={tripLifecycleLoading || Boolean(travelerValidationError)}
-              onRefresh={loadTravelerRecommendations}
-              onInclude={(poiId) => void includeRecommendationPoi(poiId)}
-              onExclude={(poiId) => void excludeRecommendationPoi(poiId)}
-              onRestore={removeTripConstraintPoi}
-              onInspectMap={openRecommendationMap}
-            />
+            {activeTripPreview && recommendationPanelOpen && (
+              <div ref={recommendationPanelRef}>
+                <TravelerRecommendationPanel
+                  candidates={recommendationCandidates}
+                  loading={recommendationLoading}
+                  requested={recommendationsRequested}
+                  error={recommendationError}
+                  disabled={previewLoading || tripLifecycleLoading || Boolean(travelerValidationError)}
+                  onRefresh={loadTravelerRecommendations}
+                  onInclude={(poiId) => void includeRecommendationPoi(poiId)}
+                  onExclude={(poiId) => void excludeRecommendationPoi(poiId)}
+                  onRestore={removeTripConstraintPoi}
+                  onInspectMap={openRecommendationMap}
+                  onClose={() => setRecommendationPanelOpen(false)}
+                />
+              </div>
+            )}
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1546,6 +1725,17 @@ export default function UrbanAgentPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {activeTripPreview && (
+                    <button
+                      type="button"
+                      onClick={() => void loadTravelerRecommendations()}
+                      disabled={recommendationLoading || previewLoading || Boolean(travelerValidationError)}
+                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-teal-700 bg-white px-3 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {recommendationLoading ? <Loader2 className="animate-spin" size={15} /> : <Sparkles size={15} />}
+                      {recommendationLoading ? 'Đang tìm địa điểm...' : 'Gợi ý thêm địa điểm'}
+                    </button>
+                  )}
                   {activeTripPreview && (
                     <button
                       type="button"
@@ -1770,7 +1960,20 @@ export default function UrbanAgentPage() {
                                       onMoveUp={() => moveScheduledStop(stop, -1)}
                                       onMoveDown={() => moveScheduledStop(stop, 1)}
                                       onRemove={() => removeScheduledStop(stop)}
-                                      disabled={tripLifecycleLoading}
+                                      disabled={previewLoading || tripLifecycleLoading}
+                                    />
+                                    <TravelerStopTravelActions
+                                      poi={poi}
+                                      routeLoading={routeLoadingId === poi.id}
+                                      grabLoading={bookingGrabId === poi.id}
+                                      disabled={previewLoading || tripLifecycleLoading}
+                                      canSendFeedback={Boolean(user)}
+                                      onInspectRoute={() => void loadExpertRoute(poi)}
+                                      onBookRide={() => void handleBookGrab(poi)}
+                                      onFeedback={(eventType) => void recordFeedback(eventType, {
+                                        poiId: poi.id,
+                                        category: poi.category,
+                                      })}
                                     />
                                   </div>
                                 </div>
@@ -1917,13 +2120,17 @@ export default function UrbanAgentPage() {
           </div>
         )}
       </section>
-      <RouteMapModal
+      <TravelerRouteModal
         open={routeModalOpen}
         title={routeModalTitle}
-        route={routeRoutes[0] || null}
+        routes={routeRoutes}
+        selectedRouteIndex={selectedRouteIndex}
         routeStops={routeStops}
-        bounds={routeBounds}
+        origin={routeOrigin}
+        loading={Boolean(routeLoadingId)}
+        error={routeError}
         onClose={() => setRouteModalOpen(false)}
+        onSelectRoute={setSelectedRouteIndex}
       />
     </div>
   );
@@ -1946,6 +2153,7 @@ function savedTripFallbackPreview(saved: SavedItinerary): TripPreviewResponse {
   };
   const sourceItems = saved.itinerary?.length
     ? saved.itinerary.map((item) => ({
+        stopId: undefined,
         poiId: item.poi.id,
         order: item.order,
         dayNumber: item.dayNumber || 1,
@@ -1958,7 +2166,7 @@ function savedTripFallbackPreview(saved: SavedItinerary): TripPreviewResponse {
       }))
     : (saved.stops || []).map((stop) => ({
         ...stop,
-        dayNumber: 1,
+        dayNumber: stop.dayNumber || 1,
         arrivalTime: null,
         departureTime: null,
         travelFromPrevious: undefined,
@@ -1973,7 +2181,7 @@ function savedTripFallbackPreview(saved: SavedItinerary): TripPreviewResponse {
     const lon = Number(snapshot.lon);
     const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lon);
     return {
-      stopId: `saved-${saved.tripId}-${item.poiId}-${index + 1}`,
+      stopId: item.stopId || `saved-${saved.tripId}-${item.poiId}-${index + 1}`,
       order: item.order || index + 1,
       dayNumber: item.dayNumber || 1,
       poi: {
@@ -2147,109 +2355,5 @@ function EmptyState({ text }: { text: string }) {
       {text}
     </div>
   );
-}
-
-function RouteMapModal({
-  open,
-  title,
-  route,
-  routeStops,
-  bounds,
-  onClose,
-}: {
-  open: boolean;
-  title: string;
-  route: RouteResult | null;
-  routeStops: PoiResult[];
-  bounds: L.LatLngBoundsExpression | null;
-  onClose: () => void;
-}) {
-  if (!open) return null;
-  const validStops = routeStops.filter((poi) => isFiniteCoord(poi.lat, poi.lon));
-  const center = validStops[0]
-    ? [validStops[0].lat, validStops[0].lon] as [number, number]
-    : [DA_NANG_CENTER.lat, DA_NANG_CENTER.lon] as [number, number];
-  const coordinates = routeCoordinates(route || undefined);
-
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 p-3 backdrop-blur-sm sm:p-5" onClick={onClose}>
-      <div
-        className="flex h-[92vh] w-full max-w-[1320px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
-          <div className="min-w-0">
-            <h2 className="truncate text-lg font-bold text-slate-950">{title}</h2>
-            <p className="mt-1 text-sm leading-5 text-slate-600">
-              Đường nối minh họa giữa các điểm, không phải chỉ đường theo đường bộ. Thời gian di chuyển là ước tính.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Đóng bản đồ lớn"
-            className="shrink-0 rounded-lg border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="grid min-h-0 flex-1 grid-rows-[minmax(320px,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-1">
-          <div className="relative min-h-[320px] bg-slate-100">
-            <MapContainer center={center} zoom={13} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
-              <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <FitBounds bounds={bounds} />
-              {coordinates.length > 1 && (
-                <Polyline positions={coordinates} pathOptions={{ color: '#0F766E', weight: 5, opacity: 0.82 }} />
-              )}
-              {validStops.map((poi, index) => (
-                <Marker key={poi.id} position={[poi.lat, poi.lon]} icon={largeMapNumberedIcon(index + 1)}>
-                  <Popup>
-                    <strong>{index + 1}. {poi.title}</strong>
-                    <br />
-                    {poi.category}
-                  </Popup>
-                </Marker>
-              ))}
-            </MapContainer>
-          </div>
-
-          <aside className="max-h-56 overflow-y-auto border-t border-slate-200 bg-slate-50 p-4 lg:max-h-none lg:border-l lg:border-t-0">
-            <div className="mb-3 flex flex-wrap gap-2 text-xs">
-              <span className="rounded-full bg-white px-3 py-1 font-semibold text-slate-700">{validStops.length} địa điểm</span>
-              {route && (
-                <span className="rounded-full bg-white px-3 py-1 font-semibold text-slate-700">
-                  Khoảng cách minh họa {(route.distance / 1000).toFixed(1)} km
-                </span>
-              )}
-            </div>
-            <div className="space-y-2">
-              {validStops.map((poi, index) => (
-                <div key={poi.id} className="flex gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-700 text-xs font-bold text-white">
-                    {index + 1}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="break-words text-sm font-semibold text-slate-950">{poi.title}</div>
-                    <div className="mt-1 text-xs text-slate-500">{poi.category}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </aside>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function largeMapNumberedIcon(order: number) {
-  return L.divIcon({
-    className: 'urbanagent-large-map-marker',
-    html: `<span style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:999px;background:#0F766E;color:white;border:3px solid #CCFBF1;font-size:13px;font-weight:800;box-shadow:0 8px 18px rgba(15,118,110,.28);">${order}</span>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
-    popupAnchor: [0, -16],
-  });
 }
 

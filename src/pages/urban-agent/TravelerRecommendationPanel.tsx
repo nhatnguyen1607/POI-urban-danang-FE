@@ -25,6 +25,7 @@ export function TravelerRecommendationPanel({
   onExclude,
   onRestore,
   onInspectMap,
+  onClose,
 }: {
   candidates: TravelerRecommendationCandidate[];
   loading: boolean;
@@ -36,6 +37,7 @@ export function TravelerRecommendationPanel({
   onExclude: (poiId: string) => void;
   onRestore: (poiId: string) => void;
   onInspectMap: (poiId: string) => void;
+  onClose: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const visibleCandidates = expanded ? candidates : candidates.slice(0, 6);
@@ -52,18 +54,29 @@ export function TravelerRecommendationPanel({
             Địa điểm phù hợp
           </h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
-            Chọn thêm địa điểm trước khi tạo hoặc cập nhật lịch trình. Các lựa chọn bị bỏ qua sẽ không được tự đưa trở lại.
+            Chọn một điểm để UrbanAgent thêm vào chuyến đi và tính toán lại lịch trình. Các lựa chọn bị bỏ qua sẽ không được tự đưa trở lại.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={loading || disabled}
-          className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-teal-700 px-3 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {loading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-          {loading ? 'Đang tìm địa điểm...' : requested ? 'Làm mới gợi ý' : 'Gợi ý địa điểm'}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading || disabled}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-teal-700 px-3 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
+            {loading ? 'Đang tìm địa điểm...' : requested ? 'Làm mới gợi ý' : 'Gợi ý thêm địa điểm'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Đóng gợi ý"
+            title="Đóng gợi ý"
+            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+          >
+            <X size={18} />
+          </button>
+        </div>
       </div>
 
       {error && (
