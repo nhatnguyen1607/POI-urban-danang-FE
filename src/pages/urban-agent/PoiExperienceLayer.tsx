@@ -13,13 +13,22 @@ import {
   rankPoisForSearch,
   recordSearchLog,
   recordUserAnalyticsEvent,
+  searchGeocodedDestinations,
   searchPoisByKeyword,
   subscribePoiReviews,
   type PoiReview,
+  type SearchDestination,
   type SearchablePoi,
   type VisitMood,
   type VisitPurpose,
 } from '../../services/poiExperienceService';
+import {
+  buildGoogleMapsDirectionsUrl,
+  normalizeCoordinatePair,
+  requestTravelerRoadRoute,
+  routeCoordinates,
+  type TravelerRouteResult,
+} from './travelerCapabilities';
 
 const GEOFENCE_RADIUS_M = 45;
 const REVIEW_SKIP_PREFIX = 'danang-poi-review-skip';
@@ -49,14 +58,22 @@ function interpolatePosition(from: { lat: number; lon: number }, to: { lat: numb
   };
 }
 
-function FitPoiBounds({ userPosition, target }: { userPosition: { lat: number; lon: number } | null; target: SearchablePoi | null }) {
+function FitPoiBounds({
+  userPosition,
+  target,
+  routePath,
+}: {
+  userPosition: { lat: number; lon: number } | null;
+  target: SearchDestination | null;
+  routePath: [number, number][];
+}) {
   const map = useMap();
   useEffect(() => {
     if (!target) return;
-    const points: [number, number][] = [[target.lat, target.lon]];
+    const points: [number, number][] = routePath.length ? [...routePath] : [[target.lat, target.lon]];
     if (userPosition) points.push([userPosition.lat, userPosition.lon]);
     map.fitBounds(points, { padding: [42, 42], maxZoom: 16 });
-  }, [map, target, userPosition]);
+  }, [map, routePath, target, userPosition]);
   return null;
 }
 
@@ -71,14 +88,16 @@ function formatDistance(distance: number | null) {
 
 const uiCopy = {
   vi: {
-    title: 'Trải nghiệm POI thời gian thực',
-    subtitle: `Theo dõi GPS, tự mở review khi vào vùng ${GEOFENCE_RADIUS_M}m và dẫn đường bằng hệ chuyên gia.`,
+    title: 'Khám phá địa điểm',
+    subtitle: 'Tìm quán, địa chỉ và xem đường đi tại Đà Nẵng.',
     tracking: 'Đang theo dõi',
     enableGps: 'Bật GPS',
-    confirmReview: 'Xác nhận đến / Đánh giá',
-    route: 'Dẫn đường',
-    routePanelTitle: 'Phân tích tuyến hệ chuyên gia',
-    routePanelHint: 'Bấm “Dẫn đường” để xem cảnh báo và hướng dẫn từ hệ chuyên gia.',
+    confirmArrival: 'Xác nhận đã đến',
+    arrived: 'Đã đến nơi',
+    review: 'Đánh giá địa điểm',
+    route: 'Chỉ đường',
+    routePanelTitle: 'Tuyến đường dự kiến',
+    routePanelHint: 'Chọn địa điểm và dùng vị trí hiện tại để tải tuyến đường bộ.',
     distance: 'Khoảng cách',
     time: 'Thời gian',
     minutes: 'phút',
@@ -88,21 +107,31 @@ const uiCopy = {
     trafficAssessment: 'Đánh giá giao thông',
     routeSteps: 'Hướng dẫn từng bước',
     noTrafficWarning: 'Chưa có cảnh báo giao thông đáng kể.',
-    searchLabel: 'Tìm POI',
-    searchPlaceholder: 'Tên cửa hàng hoặc địa chỉ...',
-    targetLabel: 'POI mục tiêu',
-    selectPoi: 'Chọn POI để bắt đầu',
+    searchLabel: 'Tìm kiếm địa điểm',
+    searchPlaceholder: 'Nhập tên quán, địa điểm hoặc địa chỉ...',
+    targetLabel: 'Địa điểm đã chọn',
+    selectPoi: 'Chọn một địa điểm hoặc địa chỉ để bắt đầu',
+    placeResult: 'Địa điểm',
+    addressResult: 'Địa chỉ',
+    searchEmpty: 'Không tìm thấy địa chỉ phù hợp.',
+    searchFailed: 'Chưa thể tìm địa điểm. Vui lòng thử lại.',
+    clearSearch: 'Xóa tìm kiếm',
     noGps: 'Chưa có GPS',
     inRange: 'Trong vùng',
     outOfRange: 'Ngoài vùng',
-    skipped: 'Bạn đã bỏ qua review POI này trong chuyến đi hiện tại.',
+    skipped: 'Bạn đã bỏ qua đánh giá địa điểm này trong chuyến đi hiện tại.',
     currentLocation: 'Vị trí hiện tại',
     gpsUnsupported: 'Trình duyệt không hỗ trợ Geolocation.',
     gpsFailed: 'Không lấy được vị trí GPS.',
-    invalidRoute: 'Không có route geometry hợp lệ từ hệ chuyên gia.',
+    invalidRoute: 'Chưa tải được tuyến đường bộ hợp lệ.',
     routeFailed: 'Không thể tính đường đi.',
-    feedTitle: 'Feed đánh giá',
-    feedEmpty: 'Chưa có đánh giá cho POI này.',
+    routeAuthRequired: 'Đăng nhập để xem tuyến đường bộ trong UrbanAgent.',
+    openGoogleMaps: 'Mở Google Maps',
+    gpsToConfirm: 'Bật GPS để xác nhận khi bạn đến nơi.',
+    tooFarToConfirm: 'Bạn cần ở gần địa điểm để xác nhận đã đến.',
+    addressNoReview: 'Địa chỉ này dùng để chỉ đường và không có hồ sơ đánh giá.',
+    feedTitle: 'Đánh giá gần đây',
+    feedEmpty: 'Chưa có đánh giá cho địa điểm này.',
     urbanExplorer: 'Urban explorer',
     arrivedNow: 'Vừa đến',
     now: 'bây giờ',
@@ -128,14 +157,16 @@ const uiCopy = {
       tired: 'Mệt mỏi',
     },
   },  en: {
-    title: 'Real-time POI experience',
-    subtitle: `Track GPS, open reviews inside the ${GEOFENCE_RADIUS_M}m zone, and route with the expert system.`,
+    title: 'Explore places',
+    subtitle: 'Find venues, addresses, and directions in Da Nang.',
     tracking: 'Tracking',
     enableGps: 'Enable GPS',
-    confirmReview: 'Confirm arrival / Review',
-    route: 'Route',
-    routePanelTitle: 'Expert route analysis',
-    routePanelHint: 'Press “Route” to inspect expert-system warnings and directions.',
+    confirmArrival: 'Confirm arrival',
+    arrived: 'Arrived',
+    review: 'Review place',
+    route: 'Directions',
+    routePanelTitle: 'Suggested road route',
+    routePanelHint: 'Select a destination and use your current location to load a road route.',
     distance: 'Distance',
     time: 'Time',
     minutes: 'min',
@@ -145,21 +176,31 @@ const uiCopy = {
     trafficAssessment: 'Traffic assessment',
     routeSteps: 'Step-by-step directions',
     noTrafficWarning: 'No major traffic warning yet.',
-    searchLabel: 'Search POIs',
-    searchPlaceholder: 'Store name or address...',
-    targetLabel: 'Target POI',
-    selectPoi: 'Choose a POI to start',
+    searchLabel: 'Search places',
+    searchPlaceholder: 'Enter a venue, place, or address...',
+    targetLabel: 'Selected destination',
+    selectPoi: 'Choose a place or address to start',
+    placeResult: 'Place',
+    addressResult: 'Address',
+    searchEmpty: 'No matching address found.',
+    searchFailed: 'Could not search places. Please try again.',
+    clearSearch: 'Clear search',
     noGps: 'No GPS yet',
     inRange: 'Inside zone',
     outOfRange: 'Outside zone',
-    skipped: 'You skipped this POI review for the current trip.',
+    skipped: 'You skipped this place review for the current trip.',
     currentLocation: 'Current location',
     gpsUnsupported: 'This browser does not support Geolocation.',
     gpsFailed: 'Could not get GPS location.',
-    invalidRoute: 'No valid route geometry from the expert system.',
+    invalidRoute: 'No valid road route is available.',
     routeFailed: 'Could not calculate the route.',
-    feedTitle: 'Review feed',
-    feedEmpty: 'No reviews for this POI yet.',
+    routeAuthRequired: 'Sign in to view the road route in UrbanAgent.',
+    openGoogleMaps: 'Open Google Maps',
+    gpsToConfirm: 'Enable GPS to confirm when you arrive.',
+    tooFarToConfirm: 'Move near the destination to confirm arrival.',
+    addressNoReview: 'This address supports directions but has no review profile.',
+    feedTitle: 'Recent reviews',
+    feedEmpty: 'No reviews for this place yet.',
     urbanExplorer: 'Urban explorer',
     arrivedNow: 'Just arrived at',
     now: 'now',
@@ -194,9 +235,12 @@ function fuzzyLocalSearch(query: string, pois: SearchablePoi[]) {
 }
 
 function toSearchablePoi(item: any): SearchablePoi | null {
-  const lat = Number(item?.lat ?? item?.location?.lat);
-  const lon = Number(item?.lon ?? item?.lng ?? item?.location?.lon ?? item?.location?.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const coordinates = normalizeCoordinatePair(
+    item?.lat ?? item?.location?.lat,
+    item?.lon ?? item?.lng ?? item?.location?.lon ?? item?.location?.lng,
+  );
+  if (!coordinates.hasCoordinates) return null;
+  const { lat, lon } = coordinates;
   const id = String(item?.poiId || item?.id || item?.placeId || `${item?.name || item?.title}-${lat}-${lon}`);
   return {
     id,
@@ -210,6 +254,20 @@ function toSearchablePoi(item: any): SearchablePoi | null {
     lon,
     rating: Number(item?.rating || 0),
     reviewCount: Number(item?.reviewCount || 0),
+  };
+}
+
+function poiDestination(poi: SearchablePoi): SearchDestination {
+  return {
+    id: `poi:${poi.poiId || poi.id}`,
+    type: 'poi',
+    source: 'urbanagent',
+    label: poi.name || poi.title || 'Địa điểm',
+    address: poi.address || poi.district || '',
+    category: poi.category || '',
+    lat: poi.lat,
+    lon: poi.lon,
+    poi,
   };
 }
 
@@ -228,13 +286,6 @@ async function searchPoisWithAgent(query: string, position: { lat: number; lon: 
   const agentResults = agentResponse.status === 'fulfilled' && Array.isArray(agentResponse.value?.results) ? agentResponse.value.results : [];
   const v4Results = v4Response.status === 'fulfilled' && Array.isArray(v4Response.value) ? v4Response.value : [];
   return [...agentResults, ...v4Results].map(toSearchablePoi).filter(Boolean) as SearchablePoi[];
-}
-
-function routeCoordinates(route: any) {
-  const coordinates = route?.route?.coordinates || route?.geometry?.coordinates || route?.coordinates || [];
-  return (coordinates || [])
-    .filter((coord: number[]) => Array.isArray(coord) && Number.isFinite(coord[0]) && Number.isFinite(coord[1]))
-    .map((coord: number[]) => [coord[1], coord[0]] as [number, number]);
 }
 
 function getCurrentPositionOnce(copy: PoiExperienceCopy) {
@@ -274,35 +325,7 @@ interface TravelState {
   sampleCount: number;
 }
 
-interface ExpertRouteResult {
-  route: { coordinates: number[][] };
-  distance: number;
-  duration: number;
-  steps: { instruction?: string; instructions?: string; name?: string }[];
-  esValidation: {
-    valid: boolean;
-    warnings: { message?: string; law?: string; severity?: string }[];
-    fuzzyInsights?: { road?: string; label?: string; score?: number }[];
-    totalRulesChecked?: number;
-  };
-}
-
-function normalizeExpertRoute(input: any): ExpertRouteResult | null {
-  const coordinates = input?.route?.coordinates || input?.geometry?.coordinates || input?.coordinates || [];
-  if (!Array.isArray(coordinates) || !coordinates.length) return null;
-  return {
-    route: { coordinates },
-    distance: Number(input?.distance) || 0,
-    duration: Number(input?.duration) || 0,
-    steps: Array.isArray(input?.steps) ? input.steps : [],
-    esValidation: {
-      valid: Boolean(input?.esValidation?.valid),
-      warnings: Array.isArray(input?.esValidation?.warnings) ? input.esValidation.warnings : [],
-      fuzzyInsights: Array.isArray(input?.esValidation?.fuzzyInsights) ? input.esValidation.fuzzyInsights : [],
-      totalRulesChecked: Number(input?.esValidation?.totalRulesChecked) || 0,
-    },
-  };
-}
+type ExpertRouteResult = TravelerRouteResult;
 
 function formatRouteDistance(meters?: number) {
   if (!meters) return '--';
@@ -337,7 +360,7 @@ export function PoiExperienceLayer({
   const allPois = useMemo(() => {
     const map = new Map<string, SearchablePoi>();
     [...itineraryPois, ...extraPois]
-      .filter((poi) => Number.isFinite(poi.lat) && Number.isFinite(poi.lon))
+      .filter((poi) => normalizeCoordinatePair(poi.lat, poi.lon).hasCoordinates)
       .forEach((poi) => map.set(poi.poiId || poi.id, poi));
     return Array.from(map.values());
   }, [extraPois, itineraryPois]);
@@ -351,27 +374,53 @@ export function PoiExperienceLayer({
   const [reviews, setReviews] = useState<PoiReview[]>([]);
   const [searchText, setSearchText] = useState('');
   const [searching, setSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<SearchablePoi[]>([]);
-  const [selectedSearchPoi, setSelectedSearchPoi] = useState<SearchablePoi | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchDestination[]>([]);
+  const [selectedDestination, setSelectedDestination] = useState<SearchDestination | null>(null);
+  const [searchError, setSearchError] = useState('');
+  const [searchRequested, setSearchRequested] = useState(false);
+  const [highlightedResultIndex, setHighlightedResultIndex] = useState(0);
   const [routePath, setRoutePath] = useState<[number, number][]>([]);
   const [routeResult, setRouteResult] = useState<ExpertRouteResult | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
+  const [arrivalConfirmed, setArrivalConfirmed] = useState(false);
   const watchIdRef = useRef<number | null>(null);
   const visitRef = useRef<VisitState | null>(null);
   const travelRef = useRef<TravelState | null>(null);
   const loggedSearchRef = useRef('');
   const searchPositionRef = useRef<{ lat: number; lon: number } | null>(null);
+  const searchRequestIdRef = useRef(0);
+  const routeRequestIdRef = useRef(0);
 
-  const targetPoi = useMemo(
-    () => selectedSearchPoi || allPois.find((poi) => (poi.poiId || poi.id) === activePoiId) || itineraryPois[0] || allPois[0] || null,
-    [activePoiId, allPois, itineraryPois, selectedSearchPoi],
+  const activePoi = useMemo(
+    () => allPois.find((poi) => (poi.poiId || poi.id) === activePoiId) || null,
+    [activePoiId, allPois],
   );
-  const distanceToTarget = displayPosition && targetPoi ? haversineMeters(displayPosition, targetPoi) : null;
-  const hasSkipped = Boolean(user && targetPoi && localStorage.getItem(skipKey(user.uid, targetPoi.poiId || targetPoi.id)));
+  const targetDestination = useMemo(
+    () => selectedDestination || (activePoi ? poiDestination(activePoi) : null),
+    [activePoi, selectedDestination],
+  );
+  const reviewablePoi = targetDestination?.poi || null;
+  const distanceToTarget = displayPosition && targetDestination ? haversineMeters(displayPosition, targetDestination) : null;
+  const arrivalEligible = Boolean(
+    reviewablePoi
+    && rawPosition
+    && rawPosition.accuracy <= 100
+    && distanceToTarget !== null
+    && distanceToTarget <= GEOFENCE_RADIUS_M + Math.min(rawPosition.accuracy, 25),
+  );
+  const hasSkipped = Boolean(user && reviewablePoi && localStorage.getItem(skipKey(user.uid, reviewablePoi.poiId || reviewablePoi.id)));
 
   useEffect(() => {
-    if (!targetPoi && allPois[0]) setActivePoiId(allPois[0].poiId || allPois[0].id);
-  }, [allPois, targetPoi]);
+    routeRequestIdRef.current += 1;
+    // A new explicit destination invalidates every route and arrival state from the old one.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRoutePath([]);
+    setRouteResult(null);
+    setRouteLoading(false);
+    setReviewPoi(null);
+    setArrivalConfirmed(false);
+    visitRef.current = null;
+  }, [targetDestination?.id]);
 
   useEffect(() => {
     if (!trackingEnabled) {
@@ -418,10 +467,10 @@ export function PoiExperienceLayer({
   }, [rawPosition]);
 
   useEffect(() => {
-    if (!rawPosition || !targetPoi) return;
+    if (!rawPosition || !reviewablePoi) return;
     const now = new Date();
-    const poiId = targetPoi.poiId || targetPoi.id;
-    const distanceToPoi = haversineMeters(rawPosition, targetPoi);
+    const poiId = reviewablePoi.poiId || reviewablePoi.id;
+    const distanceToPoi = haversineMeters(rawPosition, reviewablePoi);
     const activeVisit = visitRef.current;
 
     const finalizeVisit = (exitPosition: { lat: number; lon: number; accuracy: number }) => {
@@ -481,7 +530,7 @@ export function PoiExperienceLayer({
           eventType: 'route_segment',
           user,
           fromPoi: travel.fromPoi,
-          toPoi: targetPoi,
+          toPoi: reviewablePoi,
           startAt: travel.startAt,
           endAt: now,
           durationMinutes,
@@ -495,14 +544,13 @@ export function PoiExperienceLayer({
         travelRef.current = null;
       }
       visitRef.current = {
-        poi: targetPoi,
+        poi: reviewablePoi,
         enterAt: now,
         lastPosition: rawPosition,
         distanceM: 0,
         accuracySum: rawPosition.accuracy || 0,
         sampleCount: 1,
       };
-      if (user && !hasSkipped && !reviewPoi) setReviewPoi(targetPoi);
     } else if (!currentVisit && travelRef.current) {
       const travel = travelRef.current;
       const delta = haversineMeters(travel.lastPosition, rawPosition);
@@ -511,51 +559,80 @@ export function PoiExperienceLayer({
       travel.accuracySum += rawPosition.accuracy || 0;
       travel.sampleCount += 1;
     }
-  }, [hasSkipped, rawPosition, reviewPoi, targetPoi, user]);
+  }, [rawPosition, reviewablePoi, user]);
 
   useEffect(() => {
-    if (!targetPoi) {
+    if (!reviewablePoi) {
       setReviews([]);
       return undefined;
     }
-    return subscribePoiReviews(targetPoi.poiId || targetPoi.id, setReviews);
-  }, [targetPoi]);
+    return subscribePoiReviews(reviewablePoi.poiId || reviewablePoi.id, setReviews);
+  }, [reviewablePoi]);
 
   useEffect(() => {
     const handle = window.setTimeout(async () => {
       const normalized = normalizeSearchText(searchText);
       if (normalized.length < 2) {
+        searchRequestIdRef.current += 1;
         setSearchResults([]);
+        setSearchError('');
+        setSearchRequested(false);
         return;
       }
       if (!showSearch) return;
+      const requestId = ++searchRequestIdRef.current;
       setSearching(true);
+      setSearchError('');
+      setSearchRequested(true);
       try {
-        const [agentResults, remote] = await Promise.all([
-          searchPoisWithAgent(searchText, searchPositionRef.current).catch(() => []),
-          firebaseReady ? searchPoisByKeyword(searchText).catch(() => []) : Promise.resolve([]),
+        const [agentResponse, firebaseResponse, geocodeResponse] = await Promise.allSettled([
+          searchPoisWithAgent(searchText, searchPositionRef.current),
+          firebaseReady ? searchPoisByKeyword(searchText) : Promise.resolve([]),
+          searchGeocodedDestinations(searchText),
         ]);
+        if (requestId !== searchRequestIdRef.current) return;
+        const agentResults = agentResponse.status === 'fulfilled' ? agentResponse.value : [];
+        const remote = firebaseResponse.status === 'fulfilled' ? firebaseResponse.value : [];
+        const geocoded = geocodeResponse.status === 'fulfilled' ? geocodeResponse.value : [];
         const merged = [...agentResults, ...remote, ...fuzzyLocalSearch(searchText, allPois)];
         const deduped = Array.from(new Map(merged.map((poi) => [poi.poiId || poi.id, poi])).values());
-        const results = rankPoisForSearch(searchText, deduped, 12);
+        const internalResults = rankPoisForSearch(searchText, deduped, 8).map(poiDestination);
+        const looksLikeAddress = /\d/.test(searchText);
+        const results = looksLikeAddress ? geocoded : [...internalResults, ...geocoded];
         setSearchResults(results);
-        const normalized = normalizeSearchText(searchText);
+        setHighlightedResultIndex(0);
+        if (looksLikeAddress && geocodeResponse.status === 'rejected') {
+          setSearchError(ui.searchFailed);
+        } else if (
+          !looksLikeAddress
+          && agentResponse.status === 'rejected'
+          && firebaseResponse.status === 'rejected'
+          && geocodeResponse.status === 'rejected'
+        ) {
+          setSearchError(ui.searchFailed);
+        }
         if (loggedSearchRef.current !== normalized) {
           loggedSearchRef.current = normalized;
           void recordSearchLog({ user, query: searchText, resultCount: results.length });
         }
       } catch {
-        const results = fuzzyLocalSearch(searchText, allPois);
-        setSearchResults(results);
+        if (requestId !== searchRequestIdRef.current) return;
+        setSearchResults([]);
+        setSearchError(ui.searchFailed);
       } finally {
-        setSearching(false);
+        if (requestId === searchRequestIdRef.current) setSearching(false);
       }
-    }, 300);
+    }, 450);
     return () => window.clearTimeout(handle);
-  }, [allPois, firebaseReady, searchText, showSearch, user]);
+  }, [allPois, firebaseReady, searchText, showSearch, ui.searchFailed, user]);
+
+  const confirmArrival = () => {
+    if (!arrivalEligible || !reviewablePoi) return;
+    setArrivalConfirmed(true);
+  };
 
   const openManualReview = () => {
-    if (targetPoi) setReviewPoi(targetPoi);
+    if (arrivalConfirmed && reviewablePoi) setReviewPoi(reviewablePoi);
   };
 
   const skipReview = (poi: SearchablePoi) => {
@@ -563,31 +640,95 @@ export function PoiExperienceLayer({
     setReviewPoi(null);
   };
 
+  const selectDestination = (destination: SearchDestination) => {
+    setSelectedDestination(destination);
+    setActivePoiId(destination.poi?.poiId || destination.poi?.id || '');
+    setSearchText(destination.label);
+    setSearchResults([]);
+    setSearchError('');
+    setSearchRequested(false);
+    setHighlightedResultIndex(0);
+    void recordSearchLog({
+      user,
+      query: searchText || destination.label,
+      resultCount: searchResults.length,
+      selectedPoiId: destination.poi?.poiId || destination.poi?.id,
+    });
+  };
+
+  const clearSearch = () => {
+    searchRequestIdRef.current += 1;
+    setSearchText('');
+    setSearchResults([]);
+    setSearchError('');
+    setSearchRequested(false);
+    setSelectedDestination(null);
+    setActivePoiId('');
+  };
+
   const loadExpertRouteToTarget = async () => {
-    if (!targetPoi) return;
+    if (!targetDestination) return;
+    if (!user) {
+      setGpsError(ui.routeAuthRequired);
+      return;
+    }
+    const requestId = ++routeRequestIdRef.current;
     setRouteLoading(true);
     setGpsError('');
     try {
       const origin = rawPosition || (displayPosition ? { ...displayPosition, accuracy: 0 } : await getCurrentPositionOnce(ui));
+      if (requestId !== routeRequestIdRef.current) return;
       setRawPosition(origin);
       setDisplayPosition({ lat: origin.lat, lon: origin.lon });
       setRouteResult(null);
-      const data = await apiClient.post('/api/route', {
-        origin: { lat: origin.lat, lng: origin.lon },
-        destination: { lat: targetPoi.lat, lng: targetPoi.lon },
+      const best = await requestTravelerRoadRoute({
+        origin: { lat: origin.lat, lon: origin.lon },
+        destination: { lat: targetDestination.lat, lon: targetDestination.lon },
       });
-      void incrementPoiCounter(targetPoi.poiId || targetPoi.id, 'timesRouted');
-      const best = normalizeExpertRoute(data.routes?.[0] || data);
-      if (!best) throw new Error(ui.invalidRoute);
+      if (requestId !== routeRequestIdRef.current) return;
       const coords = routeCoordinates(best);
       if (!coords.length) throw new Error(ui.invalidRoute);
       setRoutePath(coords);
       setRouteResult(best);
       setTrackingEnabled(true);
+      if (reviewablePoi) void incrementPoiCounter(reviewablePoi.poiId || reviewablePoi.id, 'timesRouted');
     } catch (error) {
+      if (requestId !== routeRequestIdRef.current) return;
+      setRoutePath([]);
+      setRouteResult(null);
       setGpsError(error instanceof Error ? error.message : ui.routeFailed);
     } finally {
-      setRouteLoading(false);
+      if (requestId === routeRequestIdRef.current) setRouteLoading(false);
+    }
+  };
+
+  const googleMapsUrl = targetDestination
+    ? buildGoogleMapsDirectionsUrl({
+        id: targetDestination.id,
+        title: targetDestination.label,
+        name: targetDestination.label,
+        address: targetDestination.address,
+        category: targetDestination.category || '',
+        district: targetDestination.address || 'Đà Nẵng',
+        lat: targetDestination.lat,
+        lon: targetDestination.lon,
+        hasCoordinates: true,
+      })
+    : null;
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!searchResults.length) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setHighlightedResultIndex((index) => Math.min(index + 1, searchResults.length - 1));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setHighlightedResultIndex((index) => Math.max(index - 1, 0));
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      selectDestination(searchResults[highlightedResultIndex] || searchResults[0]);
+    } else if (event.key === 'Escape') {
+      setSearchResults([]);
     }
   };
 
@@ -608,22 +749,43 @@ export function PoiExperienceLayer({
             <LocateFixed size={16} />
             {trackingEnabled ? ui.tracking : ui.enableGps}
           </button>
-          <button
-            onClick={openManualReview}
-            disabled={!targetPoi}
-            className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50"
-          >
-            <CheckCircle2 size={16} />
-            {ui.confirmReview}
-          </button>
+          {reviewablePoi && arrivalEligible && !arrivalConfirmed && (
+            <button
+              onClick={confirmArrival}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600"
+            >
+              <CheckCircle2 size={16} />
+              {ui.confirmArrival}
+            </button>
+          )}
+          {reviewablePoi && arrivalConfirmed && (
+            <button
+              onClick={openManualReview}
+              className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
+            >
+              <Star size={16} />
+              {ui.review}
+            </button>
+          )}
           <button
             onClick={loadExpertRouteToTarget}
-            disabled={!targetPoi || routeLoading}
+            disabled={!targetDestination || routeLoading}
             className="inline-flex items-center gap-2 rounded-xl bg-purple-500 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-400 disabled:opacity-50"
           >
             {routeLoading ? <Loader2 className="animate-spin" size={16} /> : <Route size={16} />}
             {ui.route}
           </button>
+          {googleMapsUrl && (
+            <a
+              href={googleMapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:border-cyan-400 hover:text-cyan-800"
+            >
+              <Navigation size={16} />
+              {ui.openGoogleMaps}
+            </a>
+          )}
         </div>
       </div>
 
@@ -631,23 +793,25 @@ export function PoiExperienceLayer({
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="h-[360px]">
             <MapContainer
-              center={[targetPoi?.lat || displayPosition?.lat || 16.0544, targetPoi?.lon || displayPosition?.lon || 108.2022]}
+              center={[targetDestination?.lat || displayPosition?.lat || 16.0544, targetDestination?.lon || displayPosition?.lon || 108.2022]}
               zoom={14}
               scrollWheelZoom
               style={{ height: '100%', width: '100%' }}
             >
               <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <FitPoiBounds userPosition={displayPosition} target={targetPoi} />
-              {targetPoi && (
+              <FitPoiBounds userPosition={displayPosition} target={targetDestination} routePath={routePath} />
+              {targetDestination && (
                 <>
-                  <Marker position={[targetPoi.lat, targetPoi.lon]}>
-                    <Popup>{targetPoi.name}</Popup>
+                  <Marker position={[targetDestination.lat, targetDestination.lon]}>
+                    <Popup>{targetDestination.label}</Popup>
                   </Marker>
-                  <Circle
-                    center={[targetPoi.lat, targetPoi.lon]}
-                    radius={GEOFENCE_RADIUS_M}
-                    pathOptions={{ color: '#22d3ee', fillColor: '#22d3ee', fillOpacity: 0.12 }}
-                  />
+                  {reviewablePoi && (
+                    <Circle
+                      center={[targetDestination.lat, targetDestination.lon]}
+                      radius={GEOFENCE_RADIUS_M}
+                      pathOptions={{ color: '#22d3ee', fillColor: '#22d3ee', fillOpacity: 0.12 }}
+                    />
+                  )}
                 </>
               )}
               {displayPosition && (
@@ -671,34 +835,59 @@ export function PoiExperienceLayer({
               <Search className="absolute left-3 top-3 text-slate-500" size={18} />
               <input
                 value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
+                onChange={(event) => {
+                  setSearchText(event.target.value);
+                  setHighlightedResultIndex(0);
+                }}
+                onKeyDown={handleSearchKeyDown}
                 placeholder={ui.searchPlaceholder}
+                autoComplete="off"
                 className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-10 text-sm text-slate-950 outline-none focus:border-cyan-400"
               />
-              {searching && <Loader2 className="absolute right-3 top-3 animate-spin text-cyan-300" size={18} />}
+              {searching ? (
+                <Loader2 className="absolute right-3 top-3 animate-spin text-cyan-600" size={18} />
+              ) : searchText ? (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  title={ui.clearSearch}
+                  className="absolute right-2 top-2 rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                >
+                  <X size={18} />
+                </button>
+              ) : null}
             </div>
             {!!searchResults.length && (
               <div className="mt-3 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white">
-                {searchResults.map((poi) => (
+                {searchResults.map((destination, index) => (
                   <button
-                    key={poi.poiId || poi.id}
-                    onClick={() => {
-                      setSelectedSearchPoi(poi);
-                      setActivePoiId(poi.poiId || poi.id);
-                      setSearchText(poi.name);
-                      setSearchResults([]);
-                      setRoutePath([]);
-                      setRouteResult(null);
-                      void recordSearchLog({ user, query: searchText || poi.name, resultCount: searchResults.length, selectedPoiId: poi.poiId || poi.id });
-                    }}
-                    className="block w-full border-b border-slate-200 px-3 py-3 text-left last:border-b-0 hover:bg-cyan-50"
+                    key={destination.id}
+                    onMouseEnter={() => setHighlightedResultIndex(index)}
+                    onClick={() => selectDestination(destination)}
+                    className={`block w-full border-b border-slate-200 px-3 py-3 text-left last:border-b-0 hover:bg-cyan-50 ${
+                      highlightedResultIndex === index ? 'bg-cyan-50' : 'bg-white'
+                    }`}
                   >
-                    <div className="font-semibold text-slate-950">{poi.name}</div>
-                    <div className="text-xs text-slate-500">{poi.address || poi.district || poi.category}</div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-semibold text-slate-950">{destination.label}</div>
+                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                        {destination.type === 'address' ? ui.addressResult : ui.placeResult}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs leading-5 text-slate-500">
+                      {destination.address || destination.category}
+                    </div>
                   </button>
                 ))}
+                {searchResults.some((result) => result.source === 'photon') && (
+                  <div className="px-3 py-2 text-[11px] text-slate-500">© OpenStreetMap contributors · Photon</div>
+                )}
               </div>
             )}
+            {!searching && searchRequested && !searchResults.length && !searchError && (
+              <p className="mt-3 text-sm text-slate-600">{ui.searchEmpty}</p>
+            )}
+            {searchError && <p className="mt-3 text-sm text-rose-700">{searchError}</p>}
           </div>
           )}
 
@@ -706,8 +895,8 @@ export function PoiExperienceLayer({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm text-slate-500">{ui.targetLabel}</div>
-                <h3 className="mt-1 font-semibold text-slate-950">{targetPoi?.name || ui.selectPoi}</h3>
-                <p className="mt-1 text-sm text-slate-500">{targetPoi?.category || targetPoi?.address || targetPoi?.district}</p>
+                <h3 className="mt-1 font-semibold text-slate-950">{targetDestination?.label || ui.selectPoi}</h3>
+                <p className="mt-1 text-sm text-slate-500">{targetDestination?.address || targetDestination?.category}</p>
               </div>
               <span className="rounded-full bg-cyan-100 px-3 py-1 text-sm font-semibold text-cyan-800">
                 {formatDistance(distanceToTarget)}
@@ -715,13 +904,27 @@ export function PoiExperienceLayer({
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
               <StatusPill icon={<Navigation size={15} />} label={rawPosition ? `GPS +/-${Math.round(rawPosition.accuracy)}m` : ui.noGps} />
-              <StatusPill icon={<MapPin size={15} />} label={distanceToTarget !== null && distanceToTarget <= GEOFENCE_RADIUS_M ? ui.inRange : ui.outOfRange} />
+              <StatusPill icon={<MapPin size={15} />} label={arrivalEligible ? ui.inRange : ui.outOfRange} />
             </div>
+            {reviewablePoi && arrivalConfirmed && (
+              <p className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-emerald-700">
+                <CheckCircle2 size={16} /> {ui.arrived}
+              </p>
+            )}
+            {reviewablePoi && !arrivalConfirmed && !rawPosition && (
+              <p className="mt-3 text-sm text-slate-600">{ui.gpsToConfirm}</p>
+            )}
+            {reviewablePoi && !arrivalConfirmed && rawPosition && !arrivalEligible && (
+              <p className="mt-3 text-sm text-slate-600">{ui.tooFarToConfirm}</p>
+            )}
+            {targetDestination && !reviewablePoi && (
+              <p className="mt-3 text-sm text-slate-600">{ui.addressNoReview}</p>
+            )}
             {gpsError && <p className="mt-3 text-sm text-amber-700">{gpsError}</p>}
             {hasSkipped && <p className="mt-3 text-sm text-slate-500">{ui.skipped}</p>}
           </div>
 
-          <ReviewFeed reviews={reviews} copy={ui} />
+          {reviewablePoi && <ReviewFeed reviews={reviews} copy={ui} />}
         </div>
       </div>
 
@@ -807,7 +1010,7 @@ function ExpertRoutePanel({ route, copy, loading }: { route: ExpertRouteResult |
           </h3>
           <div className="space-y-1 text-sm text-amber-800">
             {warnings.slice(0, 4).map((warning, index) => (
-              <p key={`${warning.message}-${index}`}>{warning.message || warning.law || JSON.stringify(warning)}</p>
+              <p key={`${warning.message}-${index}`}>{warning.message || warning.law || copy.routeWarnings}</p>
             ))}
           </div>
         </div>
@@ -837,7 +1040,7 @@ function ExpertRoutePanel({ route, copy, loading }: { route: ExpertRouteResult |
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-100 text-xs font-semibold text-purple-700">
                   {index + 1}
                 </span>
-                <span>{step.instruction || step.instructions || step.name || JSON.stringify(step)}</span>
+                <span>{step.instruction || step.instructions || step.name || `${copy.routeSteps} ${index + 1}`}</span>
               </div>
             ))}
           </div>

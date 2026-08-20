@@ -11,10 +11,12 @@ import {
   updateDoc,
   where,
   type Unsubscribe,
+  type DocumentData,
 } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import type { User } from 'firebase/auth';
 import { db, storage } from './firebase';
+import { apiClient } from '../utils/apiClient';
 
 const demoAuthMode = import.meta.env.VITE_DEMO_AUTH_MODE === 'true';
 const demoSessionKey = 'danang-urban-agent-demo-session';
@@ -35,6 +37,54 @@ export interface SearchablePoi {
   searchKeywords?: string[];
 }
 
+export interface SearchDestination {
+  id: string;
+  type: 'poi' | 'address' | 'place';
+  source: 'urbanagent' | 'photon';
+  label: string;
+  address?: string;
+  category?: string;
+  lat: number;
+  lon: number;
+  poi?: SearchablePoi;
+  attribution?: string;
+}
+
+export async function searchGeocodedDestinations(searchText: string) {
+  const normalized = normalizeSearchText(searchText);
+  if (normalized.length < 3) return [] as SearchDestination[];
+  const response = await apiClient.get(
+    `/api/geocode/search?q=${encodeURIComponent(searchText.trim())}&cityId=da-nang&limit=8`,
+  );
+  const results = Array.isArray(response?.results) ? response.results : [];
+  return results.flatMap((item: unknown, index: number) => {
+    const source = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+    const lat = Number(source.lat);
+    const lon = Number(source.lon);
+    if (
+      !Number.isFinite(lat)
+      || !Number.isFinite(lon)
+      || (lat === 0 && lon === 0)
+      || lat < -90
+      || lat > 90
+      || lon < -180
+      || lon > 180
+    ) return [];
+    const type = source.type === 'place' ? 'place' : 'address';
+    return [{
+      id: String(source.id || `photon-result-${index}`),
+      type,
+      source: 'photon' as const,
+      label: String(source.label || source.name || source.address || ''),
+      address: String(source.address || ''),
+      category: String(source.category || ''),
+      lat,
+      lon,
+      attribution: String(source.attribution || '© OpenStreetMap contributors'),
+    }];
+  }).filter((item: SearchDestination) => item.label);
+}
+
 export interface PoiReview {
   id: string;
   poiId: string;
@@ -45,7 +95,7 @@ export interface PoiReview {
   comment: string;
   imageUrls: string[];
   status: 'published' | 'hidden';
-  createdAt?: any;
+  createdAt?: { toMillis?: () => number } | null;
 }
 
 export type VisitPurpose = 'work_study' | 'social' | 'date' | 'solo';
@@ -61,6 +111,16 @@ export interface AutoContext {
     weatherCode?: number | null;
     description?: string;
   } | null;
+}
+
+interface WeatherContextInput {
+  source?: unknown;
+  warning?: unknown;
+  current?: {
+    temperature_2m?: unknown;
+    precipitation?: unknown;
+    weather_code?: unknown;
+  };
 }
 
 export function normalizeSearchText(value: string) {
@@ -187,7 +247,7 @@ export function rankPoisForSearch(searchText: string, pois: SearchablePoi[], max
     .map(({ poi }) => poi);
 }
 
-export function getAutoContext(weather?: any): AutoContext {
+export function getAutoContext(weather?: WeatherContextInput): AutoContext {
   const now = new Date();
   const hour = now.getHours();
   const timeOfDay = hour < 11 ? 'morning' : hour < 17 ? 'afternoon' : hour < 22 ? 'evening' : 'night';
@@ -196,11 +256,11 @@ export function getAutoContext(weather?: any): AutoContext {
     timeOfDay,
     weather: weather?.current
       ? {
-          source: weather.source || 'open-meteo',
+          source: String(weather.source || 'open-meteo'),
           temperature: Number.isFinite(Number(weather.current.temperature_2m)) ? Number(weather.current.temperature_2m) : null,
           precipitation: Number.isFinite(Number(weather.current.precipitation)) ? Number(weather.current.precipitation) : null,
           weatherCode: Number.isFinite(Number(weather.current.weather_code)) ? Number(weather.current.weather_code) : null,
-          description: weather.warning || '',
+          description: String(weather.warning || ''),
         }
       : null,
   };
@@ -213,17 +273,22 @@ export function inferTransport(avgSpeedKmh: number) {
   return 'car';
 }
 
-function toPoi(docId: string, data: any): SearchablePoi {
+function toPoi(docId: string, data: DocumentData): SearchablePoi {
+  const location = data.location && typeof data.location === 'object'
+    ? data.location as Record<string, unknown>
+    : {};
+  const latValue = location.lat ?? data.lat;
+  const lonValue = location.lng ?? location.lon ?? data.lon ?? data.lng;
   return {
     id: data.poiId || docId,
     poiId: data.poiId || docId,
     title: data.name || data.title || 'POI',
     name: data.name || data.title || 'POI',
     category: data.category || '',
-    district: data.location?.district || data.district || '',
-    address: data.location?.address || data.address || '',
-    lat: Number(data.location?.lat ?? data.lat ?? 0),
-    lon: Number(data.location?.lng ?? data.location?.lon ?? data.lon ?? data.lng ?? 0),
+    district: String(location.district || data.district || ''),
+    address: String(location.address || data.address || ''),
+    lat: latValue === null || latValue === undefined || latValue === '' ? Number.NaN : Number(latValue),
+    lon: lonValue === null || lonValue === undefined || lonValue === '' ? Number.NaN : Number(lonValue),
     rating: Number(data.rating || 0),
     reviewCount: Number(data.reviewCount || 0),
     searchKeywords: Array.isArray(data.searchKeywords) ? data.searchKeywords : [],

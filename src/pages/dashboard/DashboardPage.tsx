@@ -40,34 +40,34 @@ export default function DashboardPage() {
 
   const copy = language === 'vi'
     ? {
-        title: 'Thông tin POI (EDA)',
-        subtitle: 'Khám phá và phân tích không gian đô thị Đà Nẵng',
-        source: 'Nguồn dữ liệu',
+        title: 'Khám phá địa điểm',
+        subtitle: 'Tìm quán, địa chỉ và xem đường đi tại Đà Nẵng.',
+        source: 'Bộ sưu tập',
         total: 'Tổng số địa điểm',
         districts: 'Số lượng quận/huyện',
         categories: 'Số lượng danh mục',
         avgRating: 'Điểm đánh giá TB',
-        featured: 'Dữ liệu nổi bật',
+        featured: 'Địa điểm nổi bật',
         empty: 'Không có dữ liệu',
         rating: 'Đánh giá',
         fallbackAddress: 'Đà Nẵng',
-        poiSearchTitle: 'Tìm kiếm POI và dẫn đường',
-        poiSearchSubtitle: 'Tìm từng địa điểm theo tên hoặc địa chỉ, lấy GPS hiện tại và sinh đường đi bằng hệ chuyên gia.',
+        poiSearchTitle: 'Tìm kiếm địa điểm',
+        poiSearchSubtitle: 'Tìm quán, địa danh hoặc địa chỉ; sau đó xem đường đi từ vị trí hiện tại.',
       }
     : {
-        title: 'POI Overview (EDA)',
-        subtitle: 'Explore and analyze Danang urban POI space',
-        source: 'Data source',
-        total: 'Total POIs',
+        title: 'Explore places',
+        subtitle: 'Find venues, addresses, and directions in Da Nang.',
+        source: 'Collection',
+        total: 'Total places',
         districts: 'Districts',
         categories: 'Categories',
         avgRating: 'Average rating',
-        featured: 'Featured records',
+        featured: 'Featured places',
         empty: 'No data',
         rating: 'Rating',
         fallbackAddress: 'Danang',
-        poiSearchTitle: 'Search POIs and route',
-        poiSearchSubtitle: 'Find a place by name or address, use current GPS, and generate an expert-system route.',
+        poiSearchTitle: 'Search places',
+        poiSearchSubtitle: 'Find a venue, landmark, or address and get directions from your current location.',
       };
 
   const metrics = [
@@ -109,8 +109,8 @@ export default function DashboardPage() {
   const searchableFeaturedPois = featuredPois.map((poi: any, index) => ({
     id: poi.id || `featured-${index}`,
     poiId: poi.id || `featured-${index}`,
-    name: fixText(poi.name) || `POI ${index + 1}`,
-    title: fixText(poi.name) || `POI ${index + 1}`,
+    name: fixText(poi.name) || `${language === 'vi' ? 'Địa điểm' : 'Place'} ${index + 1}`,
+    title: fixText(poi.name) || `${language === 'vi' ? 'Địa điểm' : 'Place'} ${index + 1}`,
     category: fixText(poi.category),
     address: fixText(poi.address),
     district: fixText(poi.address) || copy.fallbackAddress,
