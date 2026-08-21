@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
-import { AlertTriangle, Camera, CheckCircle2, Clock, LocateFixed, Loader2, MapPin, Navigation, Route, Search, ShieldCheck, Star, X } from 'lucide-react';
-import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
+import { AlertTriangle, Camera, Car, CheckCircle2, Clock, LocateFixed, Loader2, MapPin, MousePointer2, Navigation, Plus, Route, Search, ShieldCheck, Star, X } from 'lucide-react';
+import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { apiClient } from '../../utils/apiClient';
 import {
@@ -24,6 +24,7 @@ import {
 } from '../../services/poiExperienceService';
 import {
   buildGoogleMapsDirectionsUrl,
+  buildGrabBookingUrl,
   normalizeCoordinatePair,
   requestTravelerRoadRoute,
   routeCoordinates,
@@ -77,6 +78,15 @@ function FitPoiBounds({
   return null;
 }
 
+function ManualPinPicker({ active, onPick }: { active: boolean; onPick: (lat: number, lon: number) => void }) {
+  useMapEvents({
+    click(event) {
+      if (active) onPick(event.latlng.lat, event.latlng.lng);
+    },
+  });
+  return null;
+}
+
 function skipKey(userId: string, poiId: string) {
   return `${REVIEW_SKIP_PREFIX}:${userId}:${poiId}`;
 }
@@ -127,6 +137,16 @@ const uiCopy = {
     routeFailed: 'Không thể tính đường đi.',
     routeAuthRequired: 'Đăng nhập để xem tuyến đường bộ trong UrbanAgent.',
     openGoogleMaps: 'Mở Google Maps',
+    addToTrip: 'Thêm vào lịch trình',
+    addingToTrip: 'Đang thêm...',
+    addedToTrip: 'Địa điểm đã được chuyển sang chuyến đi của bạn.',
+    bookRide: 'Đặt xe',
+    chooseOnMap: 'Chọn vị trí trên bản đồ',
+    cancelPin: 'Hủy chọn ghim',
+    pinHint: 'Chạm vào bản đồ để đặt ghim, sau đó chỉnh tên và địa chỉ trước khi thêm.',
+    temporaryName: 'Địa điểm tự chọn',
+    nameLabel: 'Tên địa điểm',
+    addressLabel: 'Địa chỉ mô tả',
     gpsToConfirm: 'Bật GPS để xác nhận khi bạn đến nơi.',
     tooFarToConfirm: 'Bạn cần ở gần địa điểm để xác nhận đã đến.',
     addressNoReview: 'Địa chỉ này dùng để chỉ đường và không có hồ sơ đánh giá.',
@@ -196,6 +216,16 @@ const uiCopy = {
     routeFailed: 'Could not calculate the route.',
     routeAuthRequired: 'Sign in to view the road route in UrbanAgent.',
     openGoogleMaps: 'Open Google Maps',
+    addToTrip: 'Add to itinerary',
+    addingToTrip: 'Adding...',
+    addedToTrip: 'The place was sent to your trip.',
+    bookRide: 'Book a ride',
+    chooseOnMap: 'Choose on map',
+    cancelPin: 'Cancel pin selection',
+    pinHint: 'Tap the map to drop a pin, then edit its name and address before adding it.',
+    temporaryName: 'Custom place',
+    nameLabel: 'Place name',
+    addressLabel: 'Address description',
     gpsToConfirm: 'Enable GPS to confirm when you arrive.',
     tooFarToConfirm: 'Move near the destination to confirm arrival.',
     addressNoReview: 'This address supports directions but has no review profile.',
@@ -268,6 +298,20 @@ function poiDestination(poi: SearchablePoi): SearchDestination {
     lat: poi.lat,
     lon: poi.lon,
     poi,
+  };
+}
+
+function destinationPoi(destination: SearchDestination): SearchablePoi {
+  return destination.poi || {
+    id: destination.id,
+    poiId: destination.id,
+    title: destination.label,
+    name: destination.label,
+    category: destination.category || 'Địa điểm đã chọn',
+    district: destination.address || 'Đà Nẵng',
+    address: destination.address || destination.label,
+    lat: destination.lat,
+    lon: destination.lon,
   };
 }
 
@@ -346,6 +390,8 @@ export function PoiExperienceLayer({
   title,
   subtitle,
   language = 'vi',
+  addingPlaceId = '',
+  onAddToTrip,
 }: {
   user: User | null;
   itineraryPois: SearchablePoi[];
@@ -355,6 +401,8 @@ export function PoiExperienceLayer({
   title?: string;
   subtitle?: string;
   language?: 'vi' | 'en';
+  addingPlaceId?: string;
+  onAddToTrip?: (destination: SearchDestination) => void | Promise<void>;
 }) {
   const ui = uiCopy[language];
   const allPois = useMemo(() => {
@@ -383,6 +431,8 @@ export function PoiExperienceLayer({
   const [routeResult, setRouteResult] = useState<ExpertRouteResult | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [arrivalConfirmed, setArrivalConfirmed] = useState(false);
+  const [pinMode, setPinMode] = useState(false);
+  const [addMessage, setAddMessage] = useState('');
   const watchIdRef = useRef<number | null>(null);
   const watchSessionRef = useRef(0);
   const visitRef = useRef<VisitState | null>(null);
@@ -400,7 +450,7 @@ export function PoiExperienceLayer({
     () => selectedDestination || (activePoi ? poiDestination(activePoi) : null),
     [activePoi, selectedDestination],
   );
-  const reviewablePoi = targetDestination?.poi || null;
+  const reviewablePoi = targetDestination ? destinationPoi(targetDestination) : null;
   const distanceToTarget = displayPosition && targetDestination ? haversineMeters(displayPosition, targetDestination) : null;
   const arrivalEligible = Boolean(
     reviewablePoi
@@ -648,19 +698,51 @@ export function PoiExperienceLayer({
   };
 
   const selectDestination = (destination: SearchDestination) => {
-    setSelectedDestination(destination);
-    setActivePoiId(destination.poi?.poiId || destination.poi?.id || '');
+    const selected = destination.poi ? destination : { ...destination, poi: destinationPoi(destination) };
+    setSelectedDestination(selected);
+    setActivePoiId(selected.poi?.poiId || selected.poi?.id || '');
     setSearchText(destination.label);
     setSearchResults([]);
     setSearchError('');
     setSearchRequested(false);
     setHighlightedResultIndex(0);
+    setPinMode(false);
+    setAddMessage('');
     void recordSearchLog({
       user,
       query: searchText || destination.label,
       resultCount: searchResults.length,
       selectedPoiId: destination.poi?.poiId || destination.poi?.id,
     });
+  };
+
+  const pickManualLocation = (lat: number, lon: number) => {
+    const label = searchText.trim() || ui.temporaryName;
+    selectDestination({
+      id: `manual-pin:${lat.toFixed(6)}:${lon.toFixed(6)}`,
+      type: 'address',
+      source: 'manual_pin',
+      label,
+      address: searchText.trim(),
+      category: ui.temporaryName,
+      lat,
+      lon,
+    });
+  };
+
+  const updateTemporaryDestination = (field: 'label' | 'address', value: string) => {
+    setSelectedDestination((current) => {
+      if (!current || current.source === 'urbanagent') return current;
+      const next = { ...current, [field]: value };
+      return { ...next, poi: destinationPoi({ ...next, poi: undefined }) };
+    });
+  };
+
+  const addSelectedToTrip = async (destination = targetDestination) => {
+    if (!destination || !onAddToTrip) return;
+    setAddMessage('');
+    await onAddToTrip(destination);
+    setAddMessage(ui.addedToTrip);
   };
 
   const clearSearch = () => {
@@ -722,6 +804,19 @@ export function PoiExperienceLayer({
         hasCoordinates: true,
       })
     : null;
+  const grabUrl = targetDestination
+    ? buildGrabBookingUrl({
+        id: targetDestination.id,
+        title: targetDestination.label,
+        name: targetDestination.label,
+        address: targetDestination.address,
+        category: targetDestination.category || '',
+        district: targetDestination.address || 'Đà Nẵng',
+        lat: targetDestination.lat,
+        lon: targetDestination.lon,
+        hasCoordinates: true,
+      }, rawPosition ? { lat: rawPosition.lat, lng: rawPosition.lon } : null)
+    : null;
 
   const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (!searchResults.length) return;
@@ -782,6 +877,22 @@ export function PoiExperienceLayer({
             {routeLoading ? <Loader2 className="animate-spin" size={16} /> : <Route size={16} />}
             {ui.route}
           </button>
+          {targetDestination && onAddToTrip && (
+            <button
+              type="button"
+              onClick={() => void addSelectedToTrip()}
+              disabled={addingPlaceId === targetDestination.id || !targetDestination.label.trim()}
+              className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
+            >
+              {addingPlaceId === targetDestination.id ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
+              {addingPlaceId === targetDestination.id ? ui.addingToTrip : ui.addToTrip}
+            </button>
+          )}
+          {grabUrl && (
+            <a href={grabUrl} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:border-teal-400 hover:text-teal-800">
+              <Car size={16} /> {ui.bookRide}
+            </a>
+          )}
           {googleMapsUrl && (
             <a
               href={googleMapsUrl}
@@ -806,6 +917,7 @@ export function PoiExperienceLayer({
               style={{ height: '100%', width: '100%' }}
             >
               <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              <ManualPinPicker active={pinMode} onPick={pickManualLocation} />
               <FitPoiBounds userPosition={displayPosition} target={targetDestination} routePath={routePath} />
               {targetDestination && (
                 <>
@@ -831,6 +943,7 @@ export function PoiExperienceLayer({
               )}
             </MapContainer>
           </div>
+          {pinMode && <div className="flex items-center gap-2 border-t border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><MousePointer2 size={16} /> {ui.pinHint}</div>}
           <ExpertRoutePanel route={routeResult} copy={ui} loading={routeLoading} />
         </div>
 
@@ -867,24 +980,25 @@ export function PoiExperienceLayer({
             {!!searchResults.length && (
               <div className="mt-3 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white">
                 {searchResults.map((destination, index) => (
-                  <button
+                  <div
                     key={destination.id}
                     onMouseEnter={() => setHighlightedResultIndex(index)}
-                    onClick={() => selectDestination(destination)}
-                    className={`block w-full border-b border-slate-200 px-3 py-3 text-left last:border-b-0 hover:bg-cyan-50 ${
+                    className={`border-b border-slate-200 px-3 py-3 last:border-b-0 ${
                       highlightedResultIndex === index ? 'bg-cyan-50' : 'bg-white'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-semibold text-slate-950">{destination.label}</div>
-                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                        {destination.type === 'address' ? ui.addressResult : ui.placeResult}
-                      </span>
+                    <button type="button" onClick={() => selectDestination(destination)} className="block w-full text-left">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="font-semibold text-slate-950">{destination.label}</div>
+                        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">{destination.type === 'address' ? ui.addressResult : ui.placeResult}</span>
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-slate-500">{destination.address || destination.category}</div>
+                    </button>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button type="button" onClick={() => selectDestination(destination)} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-cyan-400">Xem trên bản đồ</button>
+                      {onAddToTrip && <button type="button" onClick={() => void addSelectedToTrip(destination)} disabled={addingPlaceId === destination.id} className="rounded-lg bg-teal-700 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{addingPlaceId === destination.id ? ui.addingToTrip : ui.addToTrip}</button>}
                     </div>
-                    <div className="mt-1 text-xs leading-5 text-slate-500">
-                      {destination.address || destination.category}
-                    </div>
-                  </button>
+                  </div>
                 ))}
                 {searchResults.some((result) => result.source === 'photon') && (
                   <div className="px-3 py-2 text-[11px] text-slate-500">© OpenStreetMap contributors · Photon</div>
@@ -895,15 +1009,24 @@ export function PoiExperienceLayer({
               <p className="mt-3 text-sm text-slate-600">{ui.searchEmpty}</p>
             )}
             {searchError && <p className="mt-3 text-sm text-rose-700">{searchError}</p>}
+            <button type="button" onClick={() => setPinMode((current) => !current)} className={`mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${pinMode ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-300 bg-white text-slate-700 hover:border-cyan-400'}`}>
+              <MapPin size={16} /> {pinMode ? ui.cancelPin : ui.chooseOnMap}
+            </button>
           </div>
           )}
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-start justify-between gap-3">
-              <div>
+              <div className="min-w-0 flex-1">
                 <div className="text-sm text-slate-500">{ui.targetLabel}</div>
-                <h3 className="mt-1 font-semibold text-slate-950">{targetDestination?.label || ui.selectPoi}</h3>
-                <p className="mt-1 text-sm text-slate-500">{targetDestination?.address || targetDestination?.category}</p>
+                {targetDestination && targetDestination.source !== 'urbanagent' ? (
+                  <div className="mt-2 space-y-2">
+                    <label className="block text-xs font-semibold text-slate-600">{ui.nameLabel}<input value={targetDestination.label} onChange={(event) => updateTemporaryDestination('label', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-950 outline-none focus:border-cyan-400" /></label>
+                    <label className="block text-xs font-semibold text-slate-600">{ui.addressLabel}<input value={targetDestination.address || ''} onChange={(event) => updateTemporaryDestination('address', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-cyan-400" /></label>
+                  </div>
+                ) : (
+                  <><h3 className="mt-1 font-semibold text-slate-950">{targetDestination?.label || ui.selectPoi}</h3><p className="mt-1 text-sm text-slate-500">{targetDestination?.address || targetDestination?.category}</p></>
+                )}
               </div>
               <span className="rounded-full bg-cyan-100 px-3 py-1 text-sm font-semibold text-cyan-800">
                 {formatDistance(distanceToTarget)}
@@ -924,10 +1047,8 @@ export function PoiExperienceLayer({
             {reviewablePoi && !arrivalConfirmed && rawPosition && !arrivalEligible && (
               <p className="mt-3 text-sm text-slate-600">{ui.tooFarToConfirm}</p>
             )}
-            {targetDestination && !reviewablePoi && (
-              <p className="mt-3 text-sm text-slate-600">{ui.addressNoReview}</p>
-            )}
             {gpsError && <p className="mt-3 text-sm text-amber-700">{gpsError}</p>}
+            {addMessage && <p className="mt-3 text-sm font-semibold text-emerald-700">{addMessage}</p>}
             {hasSkipped && <p className="mt-3 text-sm text-slate-500">{ui.skipped}</p>}
           </div>
 
