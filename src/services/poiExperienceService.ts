@@ -40,7 +40,7 @@ export interface SearchablePoi {
 export interface SearchDestination {
   id: string;
   type: 'poi' | 'address' | 'place';
-  source: 'urbanagent' | 'photon';
+  source: 'urbanagent' | 'photon' | 'manual_pin';
   label: string;
   address?: string;
   category?: string;
