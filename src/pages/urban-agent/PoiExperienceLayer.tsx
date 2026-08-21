@@ -979,27 +979,36 @@ export function PoiExperienceLayer({
             </div>
             {!!searchResults.length && (
               <div className="mt-3 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white">
-                {searchResults.map((destination, index) => (
-                  <div
-                    key={destination.id}
-                    onMouseEnter={() => setHighlightedResultIndex(index)}
-                    className={`border-b border-slate-200 px-3 py-3 last:border-b-0 ${
-                      highlightedResultIndex === index ? 'bg-cyan-50' : 'bg-white'
-                    }`}
-                  >
-                    <button type="button" onClick={() => selectDestination(destination)} className="block w-full text-left">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="font-semibold text-slate-950">{destination.label}</div>
-                        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">{destination.type === 'address' ? ui.addressResult : ui.placeResult}</span>
+                {searchResults.map((destination, index) => {
+                  const resultDistance = rawPosition ? haversineMeters(rawPosition, destination) : null;
+                  return (
+                    <div
+                      key={destination.id}
+                      onMouseEnter={() => setHighlightedResultIndex(index)}
+                      className={`border-b border-slate-200 px-3 py-3 last:border-b-0 ${
+                        highlightedResultIndex === index ? 'bg-cyan-50' : 'bg-white'
+                      }`}
+                    >
+                      <button type="button" onClick={() => selectDestination(destination)} className="block w-full text-left">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 break-words font-semibold text-slate-950">{destination.label}</div>
+                          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">{destination.type === 'address' ? ui.addressResult : ui.placeResult}</span>
+                        </div>
+                        <div className="mt-1 break-words text-xs leading-5 text-slate-600">{destination.address || destination.label}</div>
+                        {(destination.category || resultDistance !== null) && (
+                          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                            {destination.category && <span>Loại: {destination.category}</span>}
+                            {resultDistance !== null && <span>Cách bạn {formatDistance(resultDistance)}</span>}
+                          </div>
+                        )}
+                      </button>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button type="button" onClick={() => selectDestination(destination)} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-cyan-400">Xem trên bản đồ</button>
+                        {onAddToTrip && <button type="button" onClick={() => void addSelectedToTrip(destination)} disabled={addingPlaceId === destination.id} className="rounded-lg bg-teal-700 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{addingPlaceId === destination.id ? ui.addingToTrip : ui.addToTrip}</button>}
                       </div>
-                      <div className="mt-1 text-xs leading-5 text-slate-500">{destination.address || destination.category}</div>
-                    </button>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button type="button" onClick={() => selectDestination(destination)} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-cyan-400">Xem trên bản đồ</button>
-                      {onAddToTrip && <button type="button" onClick={() => void addSelectedToTrip(destination)} disabled={addingPlaceId === destination.id} className="rounded-lg bg-teal-700 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{addingPlaceId === destination.id ? ui.addingToTrip : ui.addToTrip}</button>}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {searchResults.some((result) => result.source === 'photon') && (
                   <div className="px-3 py-2 text-[11px] text-slate-500">© OpenStreetMap contributors · Photon</div>
                 )}

@@ -67,6 +67,10 @@ export function TravelerFullRouteModal({
     .filter((point) => point.hasCoordinates), [dayFilter, stops]);
   const selectedSegment = visibleSegments.find((segment) => segment.id === selectedSegmentId) || visibleSegments[0] || null;
   const roadSegments = visibleSegments.filter((segment) => segment.status === 'road' && segment.route);
+  const totalSegmentCount = visibleSegments.length;
+  const routedSegmentCount = roadSegments.length;
+  const unresolvedSegmentCount = Math.max(0, totalSegmentCount - routedSegmentCount);
+  const allSegmentsRouted = totalSegmentCount > 0 && unresolvedSegmentCount === 0;
   const totalDistance = roadSegments.reduce((sum, segment) => sum + Number(segment.route?.distance || 0), 0);
   const totalDuration = roadSegments.reduce((sum, segment) => sum + Number(segment.route?.duration || 0), 0);
   const positions = visibleSegments.flatMap((segment) => segment.path.length ? segment.path : segment.fallbackPath);
@@ -93,12 +97,18 @@ export function TravelerFullRouteModal({
           ))}
         </div>
 
-        <div className="grid grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:grid-cols-4 sm:px-6">
-          <Summary icon={<Route size={16} />} label="Tổng quãng đường" value={distanceText(totalDistance)} />
-          <Summary icon={<Clock3 size={16} />} label="Thời gian di chuyển" value={durationText(totalDuration)} />
+        <div className="grid grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:grid-cols-5 sm:px-6">
+          <Summary icon={<Route size={16} />} label="Tuyến đường đã tính" value={`${routedSegmentCount}/${totalSegmentCount} chặng`} />
+          <Summary icon={<Route size={16} />} label={allSegmentsRouted ? 'Tổng quãng đường' : 'Quãng đường đã tính'} value={distanceText(totalDistance)} />
+          <Summary icon={<Clock3 size={16} />} label={allSegmentsRouted ? 'Thời gian di chuyển' : 'Thời gian đã tính'} value={durationText(totalDuration)} />
           <Summary icon={<MapPin size={16} />} label="Điểm dừng" value={String(visibleStops.length)} />
           <Summary icon={<Car size={16} />} label="Số ngày" value={String(dayFilter === 'all' ? dayNumbers.length : 1)} />
         </div>
+        {!loading && unresolvedSegmentCount > 0 && (
+          <p className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 sm:px-6">
+            {unresolvedSegmentCount} chặng chưa lấy được tuyến đường bộ nên quãng đường và thời gian hiển thị mới bao gồm {routedSegmentCount}/{totalSegmentCount} chặng.
+          </p>
+        )}
 
         <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_420px]">
           <div className="relative min-h-[340px] border-b border-slate-200 lg:border-b-0 lg:border-r">
