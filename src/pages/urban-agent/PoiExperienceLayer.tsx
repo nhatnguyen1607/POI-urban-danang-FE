@@ -96,6 +96,13 @@ function formatDistance(distance: number | null) {
   return distance >= 1000 ? `${(distance / 1000).toFixed(1)} km` : `${Math.round(distance)} m`;
 }
 
+function createTemporaryPinId() {
+  const nonce = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return `temporary:pin:${nonce}`;
+}
+
 const uiCopy = {
   vi: {
     title: 'Khám phá địa điểm',
@@ -142,8 +149,11 @@ const uiCopy = {
     addedToTrip: 'Địa điểm đã được chuyển sang chuyến đi của bạn.',
     bookRide: 'Đặt xe',
     chooseOnMap: 'Chọn vị trí trên bản đồ',
-    cancelPin: 'Hủy chọn ghim',
+    cancelPin: 'Hủy chọn vị trí',
     pinHint: 'Chạm vào bản đồ để đặt ghim, sau đó chỉnh tên và địa chỉ trước khi thêm.',
+    pinSelectedHint: 'Đã chọn vị trí. Chạm điểm khác để di chuyển ghim hoặc chỉnh thông tin bên cạnh.',
+    pinSelectedLabel: 'Địa điểm đã chọn',
+    pinCoordinates: 'Vị trí đã ghim',
     temporaryName: 'Địa điểm tự chọn',
     nameLabel: 'Tên địa điểm',
     addressLabel: 'Địa chỉ mô tả',
@@ -223,6 +233,9 @@ const uiCopy = {
     chooseOnMap: 'Choose on map',
     cancelPin: 'Cancel pin selection',
     pinHint: 'Tap the map to drop a pin, then edit its name and address before adding it.',
+    pinSelectedHint: 'Location selected. Tap elsewhere to move the pin or edit its details.',
+    pinSelectedLabel: 'Selected place',
+    pinCoordinates: 'Pinned position',
     temporaryName: 'Custom place',
     nameLabel: 'Place name',
     addressLabel: 'Address description',
@@ -441,6 +454,7 @@ export function PoiExperienceLayer({
   const searchPositionRef = useRef<{ lat: number; lon: number } | null>(null);
   const searchRequestIdRef = useRef(0);
   const routeRequestIdRef = useRef(0);
+  const manualPinIdRef = useRef('');
 
   const activePoi = useMemo(
     () => allPois.find((poi) => (poi.poiId || poi.id) === activePoiId) || null,
@@ -698,6 +712,7 @@ export function PoiExperienceLayer({
   };
 
   const selectDestination = (destination: SearchDestination) => {
+    manualPinIdRef.current = '';
     const selected = destination.poi ? destination : { ...destination, poi: destinationPoi(destination) };
     setSelectedDestination(selected);
     setActivePoiId(selected.poi?.poiId || selected.poi?.id || '');
@@ -717,17 +732,51 @@ export function PoiExperienceLayer({
   };
 
   const pickManualLocation = (lat: number, lon: number) => {
-    const label = searchText.trim() || ui.temporaryName;
-    selectDestination({
-      id: `manual-pin:${lat.toFixed(6)}:${lon.toFixed(6)}`,
+    const currentDraft = selectedDestination?.source === 'manual_pin' ? selectedDestination : null;
+    const id = currentDraft?.id || manualPinIdRef.current || createTemporaryPinId();
+    manualPinIdRef.current = id;
+    const draft: SearchDestination = {
+      id,
       type: 'address',
       source: 'manual_pin',
-      label,
-      address: searchText.trim(),
+      label: currentDraft?.label.trim() || ui.temporaryName,
+      address: currentDraft?.address || '',
       category: ui.temporaryName,
       lat,
       lon,
-    });
+    };
+    const selected = { ...draft, poi: destinationPoi(draft) };
+    setSelectedDestination(selected);
+    setActivePoiId(selected.poi.id);
+    setSearchText('');
+    setSearchResults([]);
+    setSearchError('');
+    setSearchRequested(false);
+    setHighlightedResultIndex(0);
+    setAddMessage('');
+  };
+
+  const togglePinSelection = () => {
+    if (pinMode) {
+      setPinMode(false);
+      manualPinIdRef.current = '';
+      if (selectedDestination?.source === 'manual_pin') {
+        setSelectedDestination(null);
+        setActivePoiId('');
+      }
+      return;
+    }
+    searchRequestIdRef.current += 1;
+    manualPinIdRef.current = createTemporaryPinId();
+    setPinMode(true);
+    setSearchText('');
+    setSearchResults([]);
+    setSearchError('');
+    setSearchRequested(false);
+    setHighlightedResultIndex(0);
+    setSelectedDestination(null);
+    setActivePoiId('');
+    setAddMessage('');
   };
 
   const updateTemporaryDestination = (field: 'label' | 'address', value: string) => {
@@ -740,8 +789,13 @@ export function PoiExperienceLayer({
 
   const addSelectedToTrip = async (destination = targetDestination) => {
     if (!destination || !onAddToTrip) return;
+    const normalizedDestination = destination.source === 'manual_pin' && !destination.label.trim()
+      ? { ...destination, label: ui.temporaryName }
+      : destination;
     setAddMessage('');
-    await onAddToTrip(destination);
+    await onAddToTrip(normalizedDestination);
+    setPinMode(false);
+    manualPinIdRef.current = '';
     setAddMessage(ui.addedToTrip);
   };
 
@@ -881,7 +935,7 @@ export function PoiExperienceLayer({
             <button
               type="button"
               onClick={() => void addSelectedToTrip()}
-              disabled={addingPlaceId === targetDestination.id || !targetDestination.label.trim()}
+              disabled={addingPlaceId === targetDestination.id || (!targetDestination.label.trim() && targetDestination.source !== 'manual_pin')}
               className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
             >
               {addingPlaceId === targetDestination.id ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
@@ -914,6 +968,7 @@ export function PoiExperienceLayer({
               center={[targetDestination?.lat || displayPosition?.lat || 16.0544, targetDestination?.lon || displayPosition?.lon || 108.2022]}
               zoom={14}
               scrollWheelZoom
+              className={pinMode ? 'cursor-crosshair' : undefined}
               style={{ height: '100%', width: '100%' }}
             >
               <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -943,7 +998,7 @@ export function PoiExperienceLayer({
               )}
             </MapContainer>
           </div>
-          {pinMode && <div className="flex items-center gap-2 border-t border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><MousePointer2 size={16} /> {ui.pinHint}</div>}
+          {pinMode && <div className="flex items-center gap-2 border-t border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><MousePointer2 size={16} /> {selectedDestination?.source === 'manual_pin' ? ui.pinSelectedHint : ui.pinHint}</div>}
           <ExpertRoutePanel route={routeResult} copy={ui} loading={routeLoading} />
         </div>
 
@@ -956,6 +1011,13 @@ export function PoiExperienceLayer({
               <input
                 value={searchText}
                 onChange={(event) => {
+                  if (selectedDestination?.source === 'manual_pin') {
+                    manualPinIdRef.current = '';
+                    setPinMode(false);
+                    setSelectedDestination(null);
+                    setActivePoiId('');
+                    setAddMessage('');
+                  }
                   setSearchText(event.target.value);
                   setHighlightedResultIndex(0);
                 }}
@@ -1018,7 +1080,7 @@ export function PoiExperienceLayer({
               <p className="mt-3 text-sm text-slate-600">{ui.searchEmpty}</p>
             )}
             {searchError && <p className="mt-3 text-sm text-rose-700">{searchError}</p>}
-            <button type="button" onClick={() => setPinMode((current) => !current)} className={`mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${pinMode ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-300 bg-white text-slate-700 hover:border-cyan-400'}`}>
+            <button type="button" onClick={togglePinSelection} className={`mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${pinMode ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-300 bg-white text-slate-700 hover:border-cyan-400'}`}>
               <MapPin size={16} /> {pinMode ? ui.cancelPin : ui.chooseOnMap}
             </button>
           </div>
@@ -1027,11 +1089,12 @@ export function PoiExperienceLayer({
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <div className="text-sm text-slate-500">{ui.targetLabel}</div>
+                <div className="text-sm text-slate-500">{targetDestination?.source === 'manual_pin' ? ui.pinSelectedLabel : ui.targetLabel}</div>
                 {targetDestination && targetDestination.source !== 'urbanagent' ? (
                   <div className="mt-2 space-y-2">
                     <label className="block text-xs font-semibold text-slate-600">{ui.nameLabel}<input value={targetDestination.label} onChange={(event) => updateTemporaryDestination('label', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-950 outline-none focus:border-cyan-400" /></label>
                     <label className="block text-xs font-semibold text-slate-600">{ui.addressLabel}<input value={targetDestination.address || ''} onChange={(event) => updateTemporaryDestination('address', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-cyan-400" /></label>
+                    {targetDestination.source === 'manual_pin' && <p className="text-xs text-slate-500">{ui.pinCoordinates}: {targetDestination.lat.toFixed(6)}, {targetDestination.lon.toFixed(6)}</p>}
                   </div>
                 ) : (
                   <><h3 className="mt-1 font-semibold text-slate-950">{targetDestination?.label || ui.selectPoi}</h3><p className="mt-1 text-sm text-slate-500">{targetDestination?.address || targetDestination?.category}</p></>

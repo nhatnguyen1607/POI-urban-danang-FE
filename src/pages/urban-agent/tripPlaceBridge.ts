@@ -25,6 +25,8 @@ function safeSessionStorage() {
 }
 
 function temporaryId(destination: SearchDestination) {
+  const existingId = String(destination.id || '').trim();
+  if (existingId.startsWith('temporary:')) return existingId.slice(0, 160);
   const sourceId = String(destination.id || `${destination.lat}:${destination.lon}`)
     .replace(/[^a-zA-Z0-9:._-]/g, '-')
     .slice(0, 120);
