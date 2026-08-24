@@ -359,6 +359,12 @@ function temporaryPlacesFromRequest(request: unknown): TemporaryTripPlace[] {
       source: source === 'manual_pin' ? 'manual_pin' : source === 'photon' ? 'photon' : 'request_time_geocoder',
       canonical: false as const,
       attribution: typeof place.attribution === 'string' ? place.attribution : null,
+      providerPlaceId: typeof place.providerPlaceId === 'string' ? place.providerPlaceId : null,
+      providerContentPolicy: place.providerContentPolicy === 'first_party_confirmed'
+        ? 'first_party_confirmed' as const
+        : place.providerContentPolicy === 'request_time_only'
+          ? 'request_time_only' as const
+          : undefined,
     }];
   });
 }

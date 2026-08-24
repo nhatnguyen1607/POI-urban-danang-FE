@@ -13,6 +13,8 @@ export type TripPlaceSelection = {
   source: 'canonical' | 'photon' | 'manual_pin' | 'request_time_geocoder';
   canonical: boolean;
   attribution?: string | null;
+  providerPlaceId?: string | null;
+  providerContentPolicy?: 'request_time_only' | 'first_party_confirmed';
 };
 
 export type TemporaryTripPlace = TripPlaceSelection & {
@@ -30,7 +32,10 @@ function temporaryId(destination: SearchDestination) {
   const sourceId = String(destination.id || `${destination.lat}:${destination.lon}`)
     .replace(/[^a-zA-Z0-9:._-]/g, '-')
     .slice(0, 120);
-  return `temporary:${destination.source === 'manual_pin' ? 'pin' : 'geocode'}:${sourceId}`.slice(0, 160);
+  const kind = destination.source === 'manual_pin'
+    ? 'pin'
+    : destination.source.startsWith('google_') ? 'google' : 'geocode';
+  return `temporary:${kind}:${sourceId}`.slice(0, 160);
 }
 
 export function destinationToTripPlace(destination: SearchDestination): TripPlaceSelection {
@@ -54,9 +59,13 @@ export function destinationToTripPlace(destination: SearchDestination): TripPlac
     category: destination.category || 'Địa điểm đã chọn',
     lat: destination.lat,
     lon: destination.lon,
-    source: destination.source === 'manual_pin' ? 'manual_pin' : 'photon',
+    source: destination.source === 'manual_pin'
+      ? 'manual_pin'
+      : destination.source === 'photon' ? 'photon' : 'request_time_geocoder',
     canonical: false,
     attribution: destination.attribution || null,
+    providerPlaceId: destination.providerPlaceId || null,
+    providerContentPolicy: destination.source === 'manual_pin' ? 'first_party_confirmed' : 'request_time_only',
   };
 }
 

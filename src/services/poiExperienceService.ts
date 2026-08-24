@@ -40,7 +40,7 @@ export interface SearchablePoi {
 export interface SearchDestination {
   id: string;
   type: 'poi' | 'address' | 'place';
-  source: 'urbanagent' | 'photon' | 'manual_pin';
+  source: 'urbanagent' | 'google_places' | 'google_geocoding' | 'photon' | 'manual_pin';
   label: string;
   address?: string;
   category?: string;
@@ -48,41 +48,131 @@ export interface SearchDestination {
   lon: number;
   poi?: SearchablePoi;
   attribution?: string;
+  providerPlaceId?: string;
+  googleMapsUri?: string | null;
+  businessStatus?: string | null;
+  distanceMeters?: number;
+  exactness?: 'EXACT_ROOFTOP' | 'INTERPOLATED_ADDRESS' | 'STREET_LEVEL' | 'APPROXIMATE' | 'NAMED_PLACE';
+  googleGranularity?: string;
+  autoConfirmed?: boolean;
+  requiresConfirmation?: boolean;
+  addressMatch?: {
+    requestedHouseNumber?: string | null;
+    returnedHouseNumber?: string | null;
+    requestedStreet?: string | null;
+    returnedRoute?: string | null;
+    cityConsistent?: boolean;
+  };
+  providerSources?: string[];
 }
 
-export async function searchGeocodedDestinations(searchText: string) {
+export interface SearchOriginInput {
+  lat?: number;
+  lon?: number;
+  accuracy?: number;
+  source?: 'live_gps' | 'active_trip' | 'map_context';
+}
+
+export interface DestinationSearchMeta {
+  source?: string;
+  queryIntent?: 'EXACT_ADDRESS' | 'NAMED_PLACE' | 'CATEGORY_NEARBY' | 'GENERAL_PLACE_QUERY';
+  googleConfigured?: boolean;
+  configurationRequired?: boolean;
+  radiusM?: number | null;
+  origin?: { lat: number; lon: number; source: string; scopeFallback?: boolean };
+  fallbackReason?: string | null;
+}
+
+export interface GoogleAutocompleteSuggestion {
+  placeId: string;
+  text: string;
+  attribution: 'Google Maps';
+}
+
+export const googleDiscoveryMapConfigured = Boolean(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
+
+function searchContextParams(origin?: SearchOriginInput) {
+  const params = new URLSearchParams({
+    cityId: 'da-nang',
+    googleMapCompliant: googleDiscoveryMapConfigured ? 'true' : 'false',
+  });
+  if (Number.isFinite(origin?.lat) && Number.isFinite(origin?.lon)) {
+    params.set('lat', String(origin?.lat));
+    params.set('lon', String(origin?.lon));
+    if (Number.isFinite(origin?.accuracy)) params.set('accuracy', String(origin?.accuracy));
+    if (origin?.source) params.set('originSource', origin.source);
+  }
+  return params;
+}
+
+function normalizeRequestTimeDestination(item: unknown, index: number): SearchDestination[] {
+  const source = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+  const lat = Number(source.lat);
+  const lon = Number(source.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)
+    || lat < -90 || lat > 90 || lon < -180 || lon > 180) return [];
+  const providerSource = ['google_places', 'google_geocoding', 'photon'].includes(String(source.source))
+    ? source.source as SearchDestination['source']
+    : 'photon';
+  return [{
+    id: String(source.id || `${providerSource}-result-${index}`),
+    type: source.type === 'place' ? 'place' : 'address',
+    source: providerSource,
+    label: String(source.label || source.name || source.address || ''),
+    address: String(source.address || ''),
+    category: String(source.category || ''),
+    lat,
+    lon,
+    attribution: String(source.attribution || (providerSource.startsWith('google_') ? 'Google Maps' : '© OpenStreetMap contributors')),
+    providerPlaceId: source.providerPlaceId ? String(source.providerPlaceId) : undefined,
+    googleMapsUri: source.googleMapsUri ? String(source.googleMapsUri) : null,
+    businessStatus: source.businessStatus ? String(source.businessStatus) : null,
+    distanceMeters: Number.isFinite(Number(source.distanceMeters)) ? Number(source.distanceMeters) : undefined,
+    exactness: source.exactness as SearchDestination['exactness'],
+    googleGranularity: source.googleGranularity ? String(source.googleGranularity) : undefined,
+    autoConfirmed: source.autoConfirmed === true,
+    requiresConfirmation: source.requiresConfirmation === true,
+    addressMatch: source.addressMatch && typeof source.addressMatch === 'object'
+      ? source.addressMatch as SearchDestination['addressMatch']
+      : undefined,
+  }];
+}
+
+export async function searchGeocodedDestinations(searchText: string, origin?: SearchOriginInput) {
   const normalized = normalizeSearchText(searchText);
-  if (normalized.length < 3) return [] as SearchDestination[];
-  const response = await apiClient.get(
-    `/api/geocode/search?q=${encodeURIComponent(searchText.trim())}&cityId=da-nang&limit=8`,
-  );
+  if (normalized.length < 3) return { results: [] as SearchDestination[], meta: {} as DestinationSearchMeta };
+  const params = searchContextParams(origin);
+  params.set('q', searchText.trim());
+  params.set('limit', '8');
+  const response = await apiClient.get(`/api/geocode/search?${params.toString()}`);
   const results = Array.isArray(response?.results) ? response.results : [];
-  return results.flatMap((item: unknown, index: number) => {
-    const source = item && typeof item === 'object' ? item as Record<string, unknown> : {};
-    const lat = Number(source.lat);
-    const lon = Number(source.lon);
-    if (
-      !Number.isFinite(lat)
-      || !Number.isFinite(lon)
-      || (lat === 0 && lon === 0)
-      || lat < -90
-      || lat > 90
-      || lon < -180
-      || lon > 180
-    ) return [];
-    const type = source.type === 'place' ? 'place' : 'address';
-    return [{
-      id: String(source.id || `photon-result-${index}`),
-      type,
-      source: 'photon' as const,
-      label: String(source.label || source.name || source.address || ''),
-      address: String(source.address || ''),
-      category: String(source.category || ''),
-      lat,
-      lon,
-      attribution: String(source.attribution || '© OpenStreetMap contributors'),
-    }];
-  }).filter((item: SearchDestination) => item.label);
+  return {
+    results: results.flatMap(normalizeRequestTimeDestination).filter((item: SearchDestination) => item.label),
+    meta: response?.meta && typeof response.meta === 'object' ? response.meta as DestinationSearchMeta : {},
+  };
+}
+
+export async function autocompleteDestinations(searchText: string, sessionToken: string, origin?: SearchOriginInput) {
+  if (!googleDiscoveryMapConfigured || normalizeSearchText(searchText).length < 3) {
+    return [] as GoogleAutocompleteSuggestion[];
+  }
+  const params = searchContextParams(origin);
+  params.set('q', searchText.trim());
+  params.set('sessionToken', sessionToken);
+  const response = await apiClient.get(`/api/geocode/autocomplete?${params.toString()}`);
+  return (Array.isArray(response?.suggestions) ? response.suggestions : []).flatMap((item: unknown) => {
+    const suggestion = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+    const placeId = String(suggestion.placeId || '');
+    const text = String(suggestion.text || '');
+    return placeId && text ? [{ placeId, text, attribution: 'Google Maps' as const }] : [];
+  });
+}
+
+export async function resolveAutocompleteDestination(placeId: string, sessionToken: string, origin?: SearchOriginInput) {
+  const params = searchContextParams(origin);
+  params.set('sessionToken', sessionToken);
+  const response = await apiClient.get(`/api/geocode/place/${encodeURIComponent(placeId)}?${params.toString()}`);
+  return normalizeRequestTimeDestination(response?.result, 0)[0] || null;
 }
 
 export interface PoiReview {
