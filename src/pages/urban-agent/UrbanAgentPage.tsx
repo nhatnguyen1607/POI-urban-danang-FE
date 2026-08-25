@@ -25,6 +25,7 @@ import 'leaflet/dist/leaflet.css';
 import { apiClient } from '../../utils/apiClient';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { useAuth } from '../../auth/useAuth';
+import { useJourneyPreloader } from '../../components/preloader/journeyPreloaderContext';
 import { TripPreviewDayMap } from './TripPreviewDayMap';
 import { TripPreviewStopActions } from './TripPreviewStopActions';
 import { TravelerItineraryViewSwitch, type TravelerItineraryView } from './TravelerItineraryViewSwitch';
@@ -606,6 +607,7 @@ export default function UrbanAgentPage() {
   const location = useLocation();
   const { language } = useLanguage();
   const { user, firebaseReady, signInWithGoogle } = useAuth();
+  const { showJourney, hideJourney } = useJourneyPreloader();
   const t = copy[language];
   const roleCopy = useMemo(
     () => ({
@@ -1285,6 +1287,7 @@ export default function UrbanAgentPage() {
       setError(travelerValidationError);
       return;
     }
+    showJourney(activeTripPreview ? 'replan' : 'create');
     setPreviewLoading(true);
     setPreviewError('');
     setError('');
@@ -1304,6 +1307,7 @@ export default function UrbanAgentPage() {
     } finally {
       setPreviewLoading(false);
       setPreviewPhase('idle');
+      hideJourney();
     }
   };
 
