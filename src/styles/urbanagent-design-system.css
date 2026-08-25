@@ -1,0 +1,523 @@
+:root {
+  --ua-blue-700: #075cad;
+  --ua-blue-600: #0767c8;
+  --ua-blue-500: #1597e5;
+  --ua-blue-100: #ddf3ff;
+  --ua-blue-50: #f3faff;
+  --ua-navy-950: #0e2038;
+  --ua-navy-700: #29415f;
+  --ua-text-muted: #607086;
+  --ua-coral: #f36f56;
+  --ua-coral-dark: #d95642;
+  --ua-aqua: #0da7a2;
+  --ua-ivory: #fafcfe;
+  --ua-white: #ffffff;
+  --ua-border: #dce8f2;
+  --ua-shadow-sm: 0 10px 30px rgba(20, 57, 91, 0.08);
+  --ua-shadow-lg: 0 26px 70px rgba(18, 67, 108, 0.16);
+  --ua-radius-sm: 8px;
+  --ua-radius-md: 14px;
+  --ua-radius-lg: 20px;
+  --ua-radius-xl: 24px;
+  --ua-container: 1240px;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--ua-ivory);
+  color: var(--ua-navy-950);
+}
+
+::selection {
+  background: var(--ua-blue-100);
+  color: var(--ua-navy-950);
+}
+
+:focus-visible {
+  outline: 3px solid rgba(21, 151, 229, 0.42);
+  outline-offset: 3px;
+}
+
+.ua-container {
+  width: min(calc(100% - 32px), var(--ua-container));
+  margin-inline: auto;
+}
+
+.ua-section {
+  padding-block: clamp(72px, 8vw, 112px);
+}
+
+.ua-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ua-blue-600);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ua-display {
+  max-width: 820px;
+  color: var(--ua-navy-950);
+  font-size: clamp(42px, 6vw, 76px);
+  font-weight: 800;
+  line-height: 1.02;
+  letter-spacing: 0;
+}
+
+.ua-section-title {
+  color: var(--ua-navy-950);
+  font-size: clamp(30px, 4vw, 48px);
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+
+.ua-lead {
+  color: var(--ua-text-muted);
+  font-size: clamp(16px, 2vw, 19px);
+  line-height: 1.75;
+}
+
+.ua-card {
+  border: 1px solid var(--ua-border);
+  border-radius: var(--ua-radius-lg);
+  background: var(--ua-white);
+  box-shadow: var(--ua-shadow-sm);
+}
+
+.ua-button {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border-radius: 12px;
+  padding: 0 20px;
+  font-size: 14px;
+  font-weight: 750;
+  transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease;
+}
+
+.ua-button:hover {
+  transform: translateY(-1px);
+}
+
+.ua-button--primary {
+  border: 1px solid var(--ua-blue-600);
+  background: var(--ua-blue-600);
+  color: var(--ua-white);
+  box-shadow: 0 12px 28px rgba(7, 103, 200, 0.22);
+}
+
+.ua-button--primary:hover {
+  background: var(--ua-blue-700);
+}
+
+.ua-button--coral {
+  border: 1px solid var(--ua-coral);
+  background: var(--ua-coral);
+  color: var(--ua-white);
+  box-shadow: 0 12px 28px rgba(243, 111, 86, 0.24);
+}
+
+.ua-button--coral:hover {
+  background: var(--ua-coral-dark);
+}
+
+.ua-button--secondary {
+  border: 1px solid var(--ua-border);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ua-navy-950);
+}
+
+.ua-chip {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--ua-border);
+  border-radius: 999px;
+  background: var(--ua-white);
+  padding: 0 16px;
+  color: var(--ua-navy-700);
+  font-size: 14px;
+  font-weight: 700;
+  transition: border-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.ua-chip:hover {
+  border-color: var(--ua-blue-500);
+  color: var(--ua-blue-700);
+  transform: translateY(-1px);
+}
+
+.ua-image-card {
+  position: relative;
+  min-height: 380px;
+  overflow: hidden;
+  border-radius: var(--ua-radius-lg);
+  background: var(--ua-navy-950);
+  box-shadow: var(--ua-shadow-sm);
+}
+
+.ua-image-card img {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+  transition: transform 500ms ease;
+}
+
+.ua-image-card:hover img {
+  transform: scale(1.035);
+}
+
+.ua-image-card::after {
+  position: absolute;
+  inset: 35% 0 0;
+  background: linear-gradient(180deg, transparent, rgba(5, 24, 44, 0.88));
+  content: '';
+}
+
+.ua-product-shell {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 75% 0%, rgba(221, 243, 255, 0.65), transparent 32%),
+    var(--ua-ivory);
+}
+
+.ua-app-sidebar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  border-right: 1px solid var(--ua-border);
+  background: rgba(255, 255, 255, 0.96);
+  padding: 26px 18px 20px;
+  backdrop-filter: blur(18px);
+}
+
+.ua-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ua-navy-950);
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.ua-brand-mark__icon {
+  display: inline-grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--ua-blue-600);
+  color: white;
+  box-shadow: 0 10px 24px rgba(7, 103, 200, 0.2);
+}
+
+.ua-brand-mark small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ua-text-muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ua-brand-mark--inverse { color: white; }
+.ua-brand-mark--inverse small { color: rgba(255, 255, 255, 0.72); }
+.ua-brand-mark--compact .ua-brand-mark__icon { width: 36px; height: 36px; }
+
+.ua-role-label {
+  margin: 20px 8px 8px;
+  color: var(--ua-blue-700);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ua-app-nav {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+}
+
+.ua-app-nav__item {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 11px;
+  border-radius: 10px;
+  padding: 0 12px;
+  color: var(--ua-text-muted);
+  font-size: 14px;
+  font-weight: 700;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.ua-app-nav__item:hover {
+  background: var(--ua-blue-50);
+  color: var(--ua-blue-700);
+  transform: translateX(2px);
+}
+
+.ua-app-nav__item.is-active {
+  background: var(--ua-blue-100);
+  color: var(--ua-blue-700);
+}
+
+.ua-app-sidebar__footer {
+  display: grid;
+  gap: 10px;
+  margin-top: auto;
+  border-top: 1px solid var(--ua-border);
+  padding-top: 16px;
+}
+
+.ua-account-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.ua-account-summary__avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ua-blue-50);
+  color: var(--ua-blue-700);
+}
+
+.ua-account-summary strong,
+.ua-account-summary small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ua-account-summary strong { color: var(--ua-navy-950); font-size: 13px; }
+.ua-account-summary small { margin-top: 2px; color: var(--ua-text-muted); font-size: 11px; }
+
+.ua-language-control,
+.ua-app-signout {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--ua-border);
+  border-radius: 10px;
+  background: white;
+  padding: 0 11px;
+  color: var(--ua-navy-700);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ua-language-control select { min-width: 0; flex: 1; border: 0; background: transparent; outline: 0; }
+.ua-app-signout { justify-content: center; cursor: pointer; }
+.ua-app-signout:hover { border-color: var(--ua-blue-500); color: var(--ua-blue-700); }
+
+.ua-product-page {
+  min-width: 0;
+  padding: clamp(20px, 3vw, 38px);
+}
+
+.ua-mobile-header,
+.ua-mobile-drawer { display: none; }
+
+.ua-icon-button {
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid var(--ua-border);
+  border-radius: 10px;
+  background: white;
+  color: var(--ua-navy-950);
+}
+
+.ua-route-loading {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background: var(--ua-ivory);
+  color: var(--ua-blue-700);
+  font-weight: 750;
+}
+
+.ua-product-page .rounded-2xl,
+.ua-product-page .rounded-xl {
+  border-radius: var(--ua-radius-md);
+}
+
+.ua-product-page .shadow-sm {
+  box-shadow: var(--ua-shadow-sm);
+}
+
+.ua-product-page .bg-teal-700,
+.ua-product-page .bg-cyan-600,
+.ua-product-page .bg-purple-500 {
+  background-color: var(--ua-blue-600) !important;
+}
+
+.ua-product-page .text-teal-800,
+.ua-product-page .text-cyan-800,
+.ua-product-page .text-purple-700 {
+  color: var(--ua-blue-700) !important;
+}
+
+.ua-product-page .border-teal-700,
+.ua-product-page .border-cyan-200 {
+  border-color: var(--ua-blue-600) !important;
+}
+
+.ua-product-page .bg-teal-50,
+.ua-product-page .bg-cyan-50 {
+  background-color: var(--ua-blue-50) !important;
+}
+
+.ua-product-page input,
+.ua-product-page textarea,
+.ua-product-page select {
+  border-color: var(--ua-border);
+}
+
+.ua-product-page .leaflet-container {
+  font-family: inherit;
+}
+
+.ua-planner-hero,
+.ua-discovery-hero {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--ua-border);
+  border-radius: var(--ua-radius-lg);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.96) 58%, rgba(255, 255, 255, 0.58) 100%),
+    url('/images/da-nang/son-tra-peninsula.webp') right center / 46% 100% no-repeat;
+  padding: clamp(22px, 3.2vw, 38px);
+  box-shadow: var(--ua-shadow-sm);
+}
+
+.ua-discovery-hero {
+  background:
+    linear-gradient(90deg, rgba(243, 250, 255, 1) 0%, rgba(243, 250, 255, 0.95) 62%, rgba(243, 250, 255, 0.64) 100%),
+    url('/images/da-nang/dragon-bridge.webp') right center / 42% 100% no-repeat;
+}
+
+.ua-planner-panel {
+  border-top: 4px solid var(--ua-blue-600) !important;
+  box-shadow: 0 18px 45px rgba(20, 57, 91, 0.1) !important;
+}
+
+.ua-discovery-surface {
+  border-color: var(--ua-border) !important;
+  box-shadow: var(--ua-shadow-sm) !important;
+}
+
+.customer-agent .leaflet-container {
+  background: var(--ua-blue-50);
+}
+
+.customer-agent > section,
+.customer-agent > div > div {
+  scroll-margin-top: 80px;
+}
+
+.customer-agent button:not(:disabled),
+.ua-discovery-surface button:not(:disabled) {
+  transition: transform 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.customer-agent button:not(:disabled):active,
+.ua-discovery-surface button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .ua-container {
+    width: min(calc(100% - 24px), var(--ua-container));
+  }
+
+  .ua-section {
+    padding-block: 64px;
+  }
+
+  .ua-display {
+    font-size: clamp(40px, 13vw, 56px);
+  }
+
+  .ua-button {
+    min-height: 44px;
+    padding-inline: 16px;
+  }
+
+  .ua-planner-hero,
+  .ua-discovery-hero {
+    background:
+      linear-gradient(rgba(255, 255, 255, 0.91), rgba(255, 255, 255, 0.98)),
+      url('/images/da-nang/son-tra-peninsula.webp') center / cover;
+  }
+}
+
+@media (max-width: 1023px) {
+  .ua-product-shell { display: block; padding-top: 65px; }
+  .ua-app-sidebar { display: none; }
+  .ua-mobile-header {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 60;
+    display: flex;
+    height: 65px;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--ua-border);
+    background: rgba(255, 255, 255, 0.96);
+    padding: 0 18px;
+    backdrop-filter: blur(16px);
+  }
+  .ua-mobile-drawer { position: fixed; inset: 0; z-index: 80; display: block; }
+  .ua-mobile-drawer__scrim { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(14, 32, 56, 0.46); }
+  .ua-mobile-drawer__panel {
+    position: absolute;
+    inset: 0 0 0 auto;
+    display: flex;
+    width: min(88vw, 340px);
+    flex-direction: column;
+    background: white;
+    padding: 18px;
+    box-shadow: -24px 0 60px rgba(14, 32, 56, 0.2);
+  }
+  .ua-mobile-drawer__head { display: flex; align-items: center; justify-content: space-between; }
+  .ua-mobile-drawer .ua-app-sidebar__footer { margin-top: auto; }
+  .ua-product-page { padding: 20px; }
+}
+
+@media (max-width: 479px) {
+  .ua-product-page { padding: 14px 12px 24px; }
+  .ua-brand-mark small { display: none; }
+}
