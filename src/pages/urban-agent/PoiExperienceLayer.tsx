@@ -493,6 +493,7 @@ export function PoiExperienceLayer({
   subtitle,
   language = 'vi',
   addingPlaceId = '',
+  initialSearchText = '',
   onAddToTrip,
 }: {
   user: User | null;
@@ -504,6 +505,7 @@ export function PoiExperienceLayer({
   subtitle?: string;
   language?: 'vi' | 'en';
   addingPlaceId?: string;
+  initialSearchText?: string;
   onAddToTrip?: (destination: SearchDestination) => void | Promise<void>;
 }) {
   const ui = uiCopy[language];
@@ -522,7 +524,7 @@ export function PoiExperienceLayer({
   const [activePoiId, setActivePoiId] = useState('');
   const [reviewPoi, setReviewPoi] = useState<SearchablePoi | null>(null);
   const [reviews, setReviews] = useState<PoiReview[]>([]);
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState(initialSearchText);
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchDestination[]>([]);
   const [searchMeta, setSearchMeta] = useState<DestinationSearchMeta>({});
@@ -1075,7 +1077,7 @@ export function PoiExperienceLayer({
   };
 
   return (
-    <section className="rounded-2xl border border-cyan-200 bg-white p-5 shadow-lg shadow-slate-200/70">
+    <section className="ua-discovery-surface rounded-2xl border border-cyan-200 bg-white p-5 shadow-lg shadow-slate-200/70">
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-xl font-semibold text-slate-950">{title || ui.title}</h2>

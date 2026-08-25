@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { apiClient } from '../../utils/apiClient';
@@ -602,6 +603,7 @@ function percent(value: number) {
 }
 
 export default function UrbanAgentPage() {
+  const location = useLocation();
   const { language } = useLanguage();
   const { user, firebaseReady, signInWithGoogle } = useAuth();
   const t = copy[language];
@@ -613,8 +615,11 @@ export default function UrbanAgentPage() {
     [t],
   );
   const restoredSession = useMemo(() => readActiveTripSession<ActiveTripSession>(), []);
+  const landingPrompt = typeof (location.state as { landingPrompt?: unknown } | null)?.landingPrompt === 'string'
+    ? String((location.state as { landingPrompt: string }).landingPrompt).trim()
+    : '';
   const [role] = useState<Role>('traveler');
-  const [query, setQuery] = useState(restoredSession?.query || roleCopy[role].sample);
+  const [query, setQuery] = useState(restoredSession?.query || landingPrompt || roleCopy[role].sample);
   const [transport, setTransport] = useState(restoredSession?.transport || 'motorbike');
   const [tripStartDate, setTripStartDate] = useState(restoredSession?.tripStartDate || todayIso);
   const [tripDayCount, setTripDayCount] = useState(restoredSession?.tripDayCount || 2);
@@ -1576,7 +1581,7 @@ export default function UrbanAgentPage() {
 
   return (
     <div className="customer-agent min-h-full space-y-6 text-slate-700">
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="ua-planner-hero rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
             <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-800">
@@ -1595,7 +1600,7 @@ export default function UrbanAgentPage() {
       </section>
 
       <section className="grid items-start gap-6 xl:grid-cols-[400px_minmax(0,1fr)]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-4">
+        <div className="ua-planner-panel rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-4">
           <div className="mb-4 flex items-start gap-3">
             <div className="rounded-xl bg-teal-50 p-3 text-teal-800">
               <Compass />
@@ -2158,7 +2163,7 @@ export default function UrbanAgentPage() {
               )}
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div id="saved-trips" className="scroll-mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold text-slate-950">{t.myTrips}</h2>
