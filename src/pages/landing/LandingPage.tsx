@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import L from 'leaflet';
 import { Link, useNavigate } from 'react-router-dom';
 import { MapContainer, Marker, Polyline, Popup, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
   ArrowRight, Bookmark, Brain, Building2, CalendarClock, ChevronDown, Clock,
-  CloudSun, Footprints, Heart, Landmark, LocateFixed, Map, MapPin,
-  Menu, MessageSquareQuote, Mic, Play, RefreshCw, Route, Search,
-  SlidersHorizontal, Sparkles, X,
+  CloudSun, Coffee, Footprints, Heart, Landmark, LocateFixed, Map, MapPin,
+  Menu, MessageSquareQuote, Mic, MoonStar, Play, RefreshCw, Route, Search,
+  SlidersHorizontal, Sparkles, Trees, UtensilsCrossed, Waves, X,
 } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { BrandMark } from '../../components/BrandMark';
@@ -23,11 +23,46 @@ const destinations = [
 ];
 
 const moodGroups = [
-  { label: 'Cà phê', query: 'cafe yên tĩnh', image: asset('golden-bridge.webp'), cards: [['43 Factory Coffee', 'Cà phê đặc sản · Sơn Trà'], ['NAM House', 'Yên tĩnh · Hải Châu'], ['Enouvo Space', 'Làm việc · Ngũ Hành Sơn']] },
-  { label: 'Món địa phương', query: 'món ăn địa phương', image: asset('dragon-bridge.webp'), cards: [['Mì Quảng', 'Đặc sản Đà Nẵng'], ['Bánh xèo', 'Món địa phương'], ['Hải sản', 'Tươi · Gần biển']] },
-  { label: 'Bãi biển', query: 'bãi biển', image: asset('my-khe-coastline.webp'), cards: [['Mỹ Khê', 'Bình minh · Bơi'], ['Non Nước', 'Yên tĩnh · Bãi rộng'], ['Mân Thái', 'Địa phương · Nhẹ nhàng']] },
-  { label: 'Thiên nhiên', query: 'thiên nhiên Sơn Trà', image: asset('son-tra-peninsula.webp'), cards: [['Bán đảo Sơn Trà', 'Cung đường ngắm cảnh'], ['Ngũ Hành Sơn', 'Hang động · Toàn cảnh'], ['Đỉnh Bàn Cờ', 'Ngắm thành phố']] },
-  { label: 'Về đêm', query: 'Đà Nẵng về đêm', image: asset('dragon-bridge.webp'), cards: [['Cầu Rồng', 'Thành phố về đêm'], ['Sông Hàn', 'Dạo bộ · Ánh đèn'], ['An Thượng', 'Ẩm thực · Âm nhạc']] },
+  {
+    label: 'Cà phê', icon: Coffee, description: 'Tìm một khoảng dừng đúng nhịp của bạn.',
+    cards: [
+      { image: asset('coffee-phin.jpg'), title: 'Cà phê Phin giữa phố', meta: 'Góc local · Nhịp chậm', query: 'cà phê local yên tĩnh Hải Châu' },
+      { image: asset('coffee-beach-bar.jpg'), title: 'Cà phê thư thả gần biển', meta: 'Gió biển · Buổi chiều', query: 'cà phê thư giãn gần biển Đà Nẵng' },
+      { image: asset('coffee-garden.jpg'), title: 'Vườn cà phê ẩn mình', meta: 'Nhiều cây xanh · Riêng tư', query: 'cà phê sân vườn yên tĩnh Đà Nẵng' },
+    ],
+  },
+  {
+    label: 'Món địa phương', icon: UtensilsCrossed, description: 'Ba hương vị nên thử khi đến Đà Nẵng.',
+    cards: [
+      { image: asset('food-mi-quang.jpg'), title: 'Mì Quảng', meta: 'Đậm vị · Đặc sản xứ Quảng', query: 'Mì Quảng ngon ở Đà Nẵng' },
+      { image: asset('food-bun-cha-ca.jpg'), title: 'Bún chả cá', meta: 'Nước dùng thanh · Bữa sáng local', query: 'Bún chả cá Đà Nẵng' },
+      { image: asset('food-banh-trang-cuon.jpg'), title: 'Bánh tráng cuốn thịt heo', meta: 'Rau sống · Mắm nêm', query: 'Bánh tráng cuốn thịt heo Đà Nẵng' },
+    ],
+  },
+  {
+    label: 'Bãi biển', icon: Waves, description: 'Chọn một dải bờ biển hợp với thời điểm trong ngày.',
+    cards: [
+      { image: asset('my-khe-coastline.webp'), title: 'Mỹ Khê', meta: 'Bình minh · Bãi tắm rộng', query: 'Bãi biển Mỹ Khê' },
+      { image: asset('beach-non-nuoc.jpg'), title: 'Non Nước', meta: 'Hàng dừa · Nhịp nghỉ dưỡng', query: 'Bãi biển Non Nước Đà Nẵng' },
+      { image: asset('beach-nam-o.jpg'), title: 'Bờ biển làng chài', meta: 'Thuyền thúng · Đời sống ven biển', query: 'Bãi biển làng chài Nam Ô Đà Nẵng' },
+    ],
+  },
+  {
+    label: 'Thiên nhiên', icon: Trees, description: 'Đi ra ngoài phố để chạm vào núi, rừng và biển.',
+    cards: [
+      { image: asset('son-tra-peninsula.webp'), title: 'Bán đảo Sơn Trà', meta: 'Rừng xanh · Vịnh nhỏ', query: 'Thiên nhiên Bán đảo Sơn Trà' },
+      { image: asset('nature-hai-van.jpg'), title: 'Đèo Hải Vân', meta: 'Cung đèo · Toàn cảnh biển', query: 'Đèo Hải Vân ngắm cảnh' },
+      { image: asset('golden-bridge-sunset.webp'), title: 'Bà Nà lúc hoàng hôn', meta: 'Núi rừng · Ánh chiều', query: 'Bà Nà Hills hoàng hôn thiên nhiên' },
+    ],
+  },
+  {
+    label: 'Về đêm', icon: MoonStar, description: 'Ánh đèn thành phố cho một buổi tối nhiều sắc màu.',
+    cards: [
+      { image: asset('night-fireworks.jpg'), title: 'Cầu Rồng rực sáng', meta: 'Pháo hoa · Skyline sông Hàn', query: 'Cầu Rồng Đà Nẵng về đêm' },
+      { image: asset('night-han-river.jpg'), title: 'Sông Hàn về đêm', meta: 'Phản chiếu · Nhịp thành phố', query: 'Sông Hàn Đà Nẵng về đêm' },
+      { image: asset('night-riverwalk.jpg'), title: 'Dạo bờ sông Hàn', meta: 'Ánh đèn · Đi bộ thư thả', query: 'dạo bờ sông Hàn buổi tối' },
+    ],
+  },
 ];
 
 const timeline = [
@@ -43,6 +78,16 @@ const mapStops = [
   { name: 'Hải sản địa phương', position: [16.0732, 108.2413] as [number, number] },
   { name: 'Cầu Rồng', position: [16.0611, 108.2274] as [number, number] },
 ];
+
+const roadLikeRoute = [
+  [16.0641, 108.2437], [16.0641, 108.2448], [16.0629, 108.2448],
+  [16.0629, 108.2460], [16.0598, 108.2462], [16.0600, 108.2449],
+  [16.0626, 108.2449], [16.0626, 108.2420], [16.0674, 108.2420],
+  [16.0674, 108.2409], [16.0714, 108.2409], [16.0732, 108.2413],
+  [16.0715, 108.2408], [16.0708, 108.2378], [16.0696, 108.2369],
+  [16.0674, 108.2343], [16.0665, 108.2320], [16.0650, 108.2299],
+  [16.0630, 108.2281], [16.0611, 108.2274],
+] as [number, number][];
 
 function mapMarker(order: number, selected: boolean) {
   return L.divIcon({
@@ -63,7 +108,6 @@ export default function LandingPage() {
   const [activeMood, setActiveMood] = useState(moodGroups[0].label);
   const [selectedMarker, setSelectedMarker] = useState(2);
   const mood = moodGroups.find((item) => item.label === activeMood) || moodGroups[0];
-  const routePositions = useMemo(() => mapStops.map((stop) => stop.position), []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -206,27 +250,33 @@ export default function LandingPage() {
 
         <section className="ua-container py-16 lg:py-24">
           <h2 className="ua-landing-title">Xem cả ngày trên một bản đồ</h2>
-          <div className="relative mt-10 h-[420px] overflow-hidden rounded-[24px] shadow-[0_30px_70px_-30px_rgba(14,32,56,0.3)] ring-1 ring-[#0E2038]/8 sm:h-[520px]">
-            <MapContainer center={[16.063, 108.237]} zoom={14} scrollWheelZoom={false} zoomControl={false} style={{ height: '100%', width: '100%' }}>
-              <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <Polyline positions={routePositions} pathOptions={{ color: '#0767C8', weight: 4, opacity: 0.85, dashArray: '8 8' }} />
-              {mapStops.map((stop, index) => <Marker key={stop.name} position={stop.position} icon={mapMarker(index + 1, selectedMarker === index + 1)} eventHandlers={{ click: () => setSelectedMarker(index + 1) }}><Popup><strong>{index + 1}. {stop.name}</strong><br />Đường nối minh họa giữa các điểm</Popup></Marker>)}
-            </MapContainer>
-            <div className="absolute bottom-5 left-5 right-5 z-[500] rounded-[20px] bg-white/95 p-5 backdrop-blur sm:right-auto sm:w-[300px]">
+          <div className="ua-landing-route-showcase relative mt-10 h-[420px] overflow-hidden rounded-[24px] shadow-[0_30px_70px_-30px_rgba(14,32,56,0.3)] ring-1 ring-[#0E2038]/8 sm:h-[520px]">
+            <div className="ua-route-showcase-canvas h-full">
+              <MapContainer center={[16.063, 108.237]} zoom={14} scrollWheelZoom={false} zoomControl={false} style={{ height: '100%', width: '100%' }}>
+                <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                <Polyline positions={roadLikeRoute} pathOptions={{ color: '#FFFFFF', weight: 10, opacity: 0.92, lineCap: 'round', lineJoin: 'round' }} />
+                <Polyline positions={roadLikeRoute} pathOptions={{ color: '#0767C8', weight: 5, opacity: 0.96, lineCap: 'round', lineJoin: 'round' }} />
+                {mapStops.map((stop, index) => <Marker key={stop.name} position={stop.position} icon={mapMarker(index + 1, selectedMarker === index + 1)} eventHandlers={{ click: () => setSelectedMarker(index + 1) }}><Popup><strong>{index + 1}. {stop.name}</strong><br />Tuyến minh họa theo đường đi trên bản đồ.</Popup></Marker>)}
+              </MapContainer>
+            </div>
+            <div className="ua-route-showcase-summary absolute left-5 top-5 z-[500] rounded-[20px] bg-white/95 p-5 backdrop-blur sm:w-[300px]">
               <h3 className="text-[17px] font-semibold">Buổi tối của bạn</h3>
               <div className="mt-4 space-y-2.5 text-[14px] text-[#607086]"><p className="flex items-center gap-2"><MapPin size={16} className="text-[#0767C8]" /> 4 điểm dừng</p><p className="flex items-center gap-2"><Footprints size={16} className="text-[#0767C8]" /> 7,2 km minh họa</p><p className="flex items-center gap-2"><Clock size={16} className="text-[#0767C8]" /> Thời gian di chuyển ước tính</p></div>
               <button type="button" onClick={() => openPlanner()} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#0767C8] text-[15px] font-medium text-white"><Route size={16} /> Mở trình lập kế hoạch</button>
-              <p className="mt-3 text-[11px] leading-4 text-[#607086]">Đường nối minh họa giữa các điểm, không phải chỉ dẫn đường bộ.</p>
+              <p className="mt-3 text-[11px] leading-4 text-[#607086]">Tuyến minh họa theo đường đi trên bản đồ, không phải lộ trình live.</p>
             </div>
           </div>
         </section>
 
         <section id="experiences" className="bg-[#FAFCFE] py-20 lg:py-24">
           <div className="ua-container">
-            <h2 className="ua-landing-title">Hôm nay bạn muốn trải nghiệm gì?</h2>
-            <div className="mt-8 flex flex-wrap gap-3">{moodGroups.map((item) => <button key={item.label} type="button" onClick={() => setActiveMood(item.label)} className={`ua-mood-pill${activeMood === item.label ? ' is-active' : ''}`}>{item.label}</button>)}</div>
-            <div className="mt-10 grid gap-6 sm:grid-cols-3">
-              {mood.cards.map(([title, meta]) => <button key={title} type="button" onClick={() => openDiscovery(`${mood.query} ${title}`)} className="group overflow-hidden rounded-[20px] bg-white text-left ring-1 ring-[#0E2038]/6 transition hover:-translate-y-1 hover:shadow-[0_24px_50px_-30px_rgba(14,32,56,0.4)]"><span className="block aspect-[4/3] overflow-hidden"><ResponsiveImage src={mood.image} alt={title} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105" sizes="(min-width: 640px) 33vw, 100vw" /></span><span className="block p-5"><strong className="text-[17px] font-semibold">{title}</strong><small className="mt-1 block text-[13px] text-[#607086]">{meta}</small></span></button>)}
+            <div className="flex flex-wrap items-end justify-between gap-5">
+              <div><h2 className="ua-landing-title">Hôm nay bạn muốn trải nghiệm gì?</h2><p className="mt-3 text-[15px] text-[#607086]">{mood.description}</p></div>
+              <button type="button" onClick={() => openDiscovery(mood.label)} className="ua-outline-pill">Khám phá thêm <ArrowRight size={16} /></button>
+            </div>
+            <div className="ua-mood-tabs mt-8" role="tablist" aria-label="Loại trải nghiệm">{moodGroups.map((item) => { const Icon = item.icon; return <button key={item.label} type="button" role="tab" aria-selected={activeMood === item.label} onClick={() => setActiveMood(item.label)} className={`ua-mood-pill${activeMood === item.label ? ' is-active' : ''}`}><Icon size={16} />{item.label}</button>; })}</div>
+            <div key={mood.label} className="ua-mood-grid mt-10 grid gap-6 sm:grid-cols-3" role="tabpanel">
+              {mood.cards.map((card) => <button key={card.title} type="button" onClick={() => openDiscovery(card.query)} className="ua-mood-card group overflow-hidden bg-white text-left"><span className="block aspect-[4/3] overflow-hidden"><ResponsiveImage src={card.image} alt={card.title} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105" sizes="(min-width: 640px) 33vw, 100vw" /></span><span className="block p-5"><strong className="flex items-center justify-between gap-3 text-[17px] font-semibold"><span>{card.title}</span><ArrowRight size={16} className="shrink-0 text-[#1597E5] transition-transform group-hover:translate-x-1" /></strong><small className="mt-1.5 block text-[13px] text-[#607086]">{card.meta}</small></span></button>)}
             </div>
           </div>
         </section>
