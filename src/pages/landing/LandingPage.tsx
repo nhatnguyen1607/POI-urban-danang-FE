@@ -1,58 +1,57 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import L from 'leaflet';
 import { Link, useNavigate } from 'react-router-dom';
+import { MapContainer, Marker, Polyline, Popup, TileLayer } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 import {
-  ArrowRight,
-  BriefcaseBusiness,
-  CalendarDays,
-  Camera,
-  Check,
-  Coffee,
-  Compass,
-  Heart,
-  Leaf,
-  Map,
-  MapPin,
-  Menu,
-  MoonStar,
-  Navigation,
-  Route,
-  Search,
-  ShieldCheck,
-  Sparkles,
-  Users,
-  Waves,
-  X,
-  Zap,
+  ArrowRight, Bookmark, Brain, Building2, CalendarClock, ChevronDown, Clock,
+  CloudSun, Footprints, Heart, Landmark, LocateFixed, Map, MapPin,
+  Menu, MessageSquareQuote, Mic, Play, RefreshCw, Route, Search,
+  SlidersHorizontal, Sparkles, X,
 } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { BrandMark } from '../../components/BrandMark';
-import { FeatureCard, ProductButton, SectionHeader } from '../../components/ui/ProductPrimitives';
+import { ResponsiveImage } from '../../components/ui/ResponsiveImage';
 
-const destinationCards = [
-  { title: 'Bãi biển Mỹ Khê', tag: 'Được yêu thích', image: '/images/da-nang/my-khe-coastline.webp', query: 'biển Mỹ Khê' },
-  { title: 'Bán đảo Sơn Trà', tag: 'Thiên nhiên', image: '/images/da-nang/son-tra-peninsula.webp', query: 'Bán đảo Sơn Trà' },
-  { title: 'Cầu Rồng', tag: 'Đang được quan tâm', image: '/images/da-nang/dragon-bridge.webp', query: 'Cầu Rồng' },
-  { title: 'Bà Nà Hills', tag: 'Không thể bỏ lỡ', image: '/images/da-nang/golden-bridge.webp', query: 'Bà Nà Hills' },
+const asset = (name: string) => `/assets/urbanagent/${name}`;
+
+const destinations = [
+  { image: asset('my-khe-coastline.webp'), tag: 'Nổi bật', title: 'Bãi biển Mỹ Khê', meta: 'Biển · Bình minh · Thư giãn', query: 'bãi biển Mỹ Khê' },
+  { image: asset('son-tra-peninsula.webp'), tag: 'Thiên nhiên', title: 'Bán đảo Sơn Trà', meta: 'Thiên nhiên · Cung đường đẹp', query: 'Bán đảo Sơn Trà' },
+  { image: asset('dragon-bridge.webp'), tag: 'Đang được quan tâm', title: 'Cầu Rồng', meta: 'Thành phố · Về đêm', query: 'Cầu Rồng' },
+  { image: asset('golden-bridge.webp'), tag: 'Không thể bỏ lỡ', title: 'Bà Nà Hills', meta: 'Núi · Trải nghiệm', query: 'Bà Nà Hills' },
 ];
 
-const moods = [
-  { label: 'Café', query: 'cafe yên tĩnh', icon: Coffee },
-  { label: 'Món địa phương', query: 'món ăn địa phương', icon: Zap },
-  { label: 'Biển', query: 'bãi biển', icon: Waves },
-  { label: 'Thiên nhiên', query: 'thiên nhiên Sơn Trà', icon: Leaf },
-  { label: 'Về đêm', query: 'Đà Nẵng về đêm', icon: MoonStar },
-  { label: 'Chụp ảnh', query: 'địa điểm chụp ảnh', icon: Camera },
-  { label: 'Gia đình', query: 'địa điểm cho gia đình', icon: Users },
-  { label: 'Hẹn hò', query: 'địa điểm hẹn hò', icon: Heart },
-  { label: 'Làm việc & học tập', query: 'cafe làm việc học tập', icon: BriefcaseBusiness },
+const moodGroups = [
+  { label: 'Cà phê', query: 'cafe yên tĩnh', image: asset('golden-bridge.webp'), cards: [['43 Factory Coffee', 'Cà phê đặc sản · Sơn Trà'], ['NAM House', 'Yên tĩnh · Hải Châu'], ['Enouvo Space', 'Làm việc · Ngũ Hành Sơn']] },
+  { label: 'Món địa phương', query: 'món ăn địa phương', image: asset('dragon-bridge.webp'), cards: [['Mì Quảng', 'Đặc sản Đà Nẵng'], ['Bánh xèo', 'Món địa phương'], ['Hải sản', 'Tươi · Gần biển']] },
+  { label: 'Bãi biển', query: 'bãi biển', image: asset('my-khe-coastline.webp'), cards: [['Mỹ Khê', 'Bình minh · Bơi'], ['Non Nước', 'Yên tĩnh · Bãi rộng'], ['Mân Thái', 'Địa phương · Nhẹ nhàng']] },
+  { label: 'Thiên nhiên', query: 'thiên nhiên Sơn Trà', image: asset('son-tra-peninsula.webp'), cards: [['Bán đảo Sơn Trà', 'Cung đường ngắm cảnh'], ['Ngũ Hành Sơn', 'Hang động · Toàn cảnh'], ['Đỉnh Bàn Cờ', 'Ngắm thành phố']] },
+  { label: 'Về đêm', query: 'Đà Nẵng về đêm', image: asset('dragon-bridge.webp'), cards: [['Cầu Rồng', 'Thành phố về đêm'], ['Sông Hàn', 'Dạo bộ · Ánh đèn'], ['An Thượng', 'Ẩm thực · Âm nhạc']] },
 ];
 
 const timeline = [
-  { time: '16:00', title: 'Café gần Mỹ Khê', detail: 'Không gian yên tĩnh, ánh sáng đẹp' },
-  { time: '18:00', title: 'Dạo biển', detail: 'Khoảng nghỉ nhẹ trước bữa tối' },
-  { time: '19:15', title: 'Hải sản địa phương', detail: 'Phù hợp thời gian và nhịp chuyến đi' },
-  { time: '20:45', title: 'Sông Hàn & Cầu Rồng', detail: 'Khép lại ngày bằng một vòng đi bộ' },
+  { time: '16:00', icon: '☕', title: 'Cà phê yên tĩnh gần Mỹ Khê', info: '1,2 km · 6 phút di chuyển' },
+  { time: '18:00', icon: '🌅', title: 'Dạo bãi biển', info: '300 m · 4 phút đi bộ' },
+  { time: '19:15', icon: '🦐', title: 'Hải sản địa phương', info: '2,1 km · 8 phút di chuyển' },
+  { time: '20:45', icon: '🌉', title: 'Sông Hàn và Cầu Rồng', info: '3,6 km · 11 phút di chuyển' },
 ];
+
+const mapStops = [
+  { name: 'Cà phê Mỹ Khê', position: [16.0641, 108.2437] as [number, number] },
+  { name: 'Bãi biển Mỹ Khê', position: [16.0598, 108.2462] as [number, number] },
+  { name: 'Hải sản địa phương', position: [16.0732, 108.2413] as [number, number] },
+  { name: 'Cầu Rồng', position: [16.0611, 108.2274] as [number, number] },
+];
+
+function mapMarker(order: number, selected: boolean) {
+  return L.divIcon({
+    className: 'ua-landing-map-marker',
+    html: `<span class="${selected ? 'is-selected' : ''}">${order}</span>`,
+    iconSize: selected ? [44, 44] : [36, 36],
+    iconAnchor: selected ? [22, 22] : [18, 18],
+  });
+}
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -60,9 +59,14 @@ export default function LandingPage() {
   const [prompt, setPrompt] = useState('');
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [saved, setSaved] = useState<string[]>([]);
+  const [activeMood, setActiveMood] = useState(moodGroups[0].label);
+  const [selectedMarker, setSelectedMarker] = useState(2);
+  const mood = moodGroups.find((item) => item.label === activeMood) || moodGroups[0];
+  const routePositions = useMemo(() => mapStops.map((stop) => stop.position), []);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
+    const onScroll = () => setScrolled(window.scrollY > 40);
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
@@ -71,192 +75,200 @@ export default function LandingPage() {
   const openPlanner = (value = prompt) => {
     navigate('/urban-agent', { state: value.trim() ? { landingPrompt: value.trim() } : undefined });
   };
-  const openDiscovery = (query: string) => navigate(`/map-data?query=${encodeURIComponent(query)}`);
+  const openDiscovery = (query = '') => navigate(`/map-data${query ? `?query=${encodeURIComponent(query)}` : ''}`);
 
   return (
-    <div className="ua-public overflow-x-clip bg-[var(--ua-ivory)] text-[var(--ua-navy-950)]">
-      <header className={`fixed inset-x-0 top-0 z-50 transition ${scrolled ? 'border-b border-[var(--ua-border)] bg-white/95 shadow-sm backdrop-blur' : 'bg-white/80 backdrop-blur-sm'}`}>
-        <div className="ua-container flex h-18 items-center justify-between gap-5">
-          <Link to="/" aria-label="UrbanAgent AI home"><BrandMark /></Link>
-          <nav className="hidden items-center gap-7 lg:flex" aria-label="Điều hướng chính">
-            <a href="#explore" className="text-sm font-bold text-[var(--ua-navy-700)] hover:text-[var(--ua-blue-600)]">Khám phá</a>
-            <Link to="/urban-agent" className="text-sm font-bold text-[var(--ua-navy-700)] hover:text-[var(--ua-blue-600)]">AI Planner</Link>
-            <a href="#experience" className="text-sm font-bold text-[var(--ua-navy-700)] hover:text-[var(--ua-blue-600)]">Trải nghiệm</a>
-            <a href="#business" className="text-sm font-bold text-[var(--ua-navy-700)] hover:text-[var(--ua-blue-600)]">Doanh nghiệp</a>
-            <a href="#why" className="text-sm font-bold text-[var(--ua-navy-700)] hover:text-[var(--ua-blue-600)]">Giới thiệu</a>
+    <div className="ua-public overflow-x-clip bg-white text-[var(--ua-navy-950)]">
+      <header className={`ua-public-header${scrolled ? ' is-solid' : ''}`}>
+        <div className="ua-container flex h-20 items-center justify-between">
+          <Link to="/" aria-label="Trang chủ UrbanAgent"><BrandMark showTagline={false} /></Link>
+          <nav className="hidden items-center gap-9 lg:flex" aria-label="Điều hướng chính">
+            <a href="#explore">Khám phá</a><a href="#ai-planner">AI Planner</a><a href="#experiences">Trải nghiệm</a>
+            <a href="#for-business">Doanh nghiệp</a><a href="#about">Giới thiệu</a>
           </nav>
-          <div className="hidden items-center gap-3 lg:flex">
-            <Link to={user ? '/urban-agent' : '/login'} className="ua-button ua-button--secondary">{user ? 'Mở chuyến đi' : 'Đăng nhập'}</Link>
-            <button type="button" onClick={() => openPlanner()} className="ua-button ua-button--primary">Hỏi UrbanAgent <Sparkles size={16} /></button>
+          <div className="hidden items-center gap-3 sm:flex">
+            <Link to={user ? '/urban-agent' : '/login'} className="ua-public-signin">{user ? 'Mở chuyến đi' : 'Đăng nhập'}</Link>
+            <button type="button" onClick={() => openPlanner()} className="ua-public-header-cta"><Sparkles size={16} /> Hỏi UrbanAgent</button>
           </div>
-          <button type="button" onClick={() => setMenuOpen(true)} className="rounded-xl border border-[var(--ua-border)] bg-white p-2.5 text-[var(--ua-navy-950)] lg:hidden" aria-label="Mở menu"><Menu size={21} /></button>
+          <button type="button" onClick={() => setMenuOpen(true)} className="ua-icon-button ua-public-menu-button" aria-label="Mở menu"><Menu size={21} /></button>
         </div>
       </header>
 
       {menuOpen && (
-        <div className="fixed inset-0 z-[60] bg-[var(--ua-navy-950)]/35 lg:hidden" role="presentation" onClick={() => setMenuOpen(false)}>
-          <nav className="ml-auto flex h-full w-[min(88vw,360px)] flex-col bg-white p-5 shadow-2xl" aria-label="Menu di động" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between"><BrandMark /><button type="button" onClick={() => setMenuOpen(false)} className="rounded-lg p-2" aria-label="Đóng menu"><X /></button></div>
-            <div className="mt-10 flex flex-col gap-2">
-              {[['Khám phá', '#explore'], ['AI Planner', '/urban-agent'], ['Trải nghiệm', '#experience'], ['Doanh nghiệp', '#business'], ['Giới thiệu', '#why']].map(([label, href]) => (
-                href.startsWith('#')
-                  ? <a key={label} href={href} onClick={() => setMenuOpen(false)} className="rounded-xl px-4 py-3 font-bold hover:bg-[var(--ua-blue-50)]">{label}</a>
-                  : <Link key={label} to={href} onClick={() => setMenuOpen(false)} className="rounded-xl px-4 py-3 font-bold hover:bg-[var(--ua-blue-50)]">{label}</Link>
-              ))}
+        <div className="fixed inset-0 z-[70] bg-[var(--ua-navy-950)]/40 sm:hidden" onClick={() => setMenuOpen(false)}>
+          <nav className="ml-auto flex h-full w-[min(88vw,340px)] flex-col bg-white p-5 shadow-2xl" aria-label="Menu di động" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between"><BrandMark showTagline={false} /><button type="button" className="ua-icon-button" onClick={() => setMenuOpen(false)} aria-label="Đóng menu"><X size={20} /></button></div>
+            <div className="mt-10 grid gap-2">
+              {[['Khám phá', '#explore'], ['AI Planner', '#ai-planner'], ['Trải nghiệm', '#experiences'], ['Doanh nghiệp', '#for-business'], ['Giới thiệu', '#about']].map(([label, href]) => <a key={label} href={href} onClick={() => setMenuOpen(false)} className="rounded-xl px-4 py-3 text-[15px] font-medium hover:bg-[var(--ua-soft-sky)]">{label}</a>)}
             </div>
-            <button type="button" onClick={() => openPlanner()} className="ua-button ua-button--primary mt-auto">Hỏi UrbanAgent <Sparkles size={16} /></button>
+            <button type="button" onClick={() => openPlanner()} className="ua-public-header-cta mt-auto"><Sparkles size={16} /> Hỏi UrbanAgent</button>
           </nav>
         </div>
       )}
 
       <main>
-        <section className="relative min-h-[650px] overflow-hidden pt-18">
-          <img src="/images/da-nang/my-khe-coastline.jpg" alt="Bờ biển Mỹ Khê nhìn từ trên cao" className="absolute inset-0 h-full w-full object-cover" fetchPriority="high" />
-          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(5,30,55,.9)_0%,rgba(7,43,75,.74)_42%,rgba(7,43,75,.16)_78%)]" />
-          <div className="ua-container relative z-10 flex min-h-[650px] items-center pb-28 pt-16">
-            <div className="max-w-[760px] text-white">
-              <div className="inline-flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.08em] text-[#c9eeff]"><Sparkles size={15} /> Trợ lý AI khám phá Đà Nẵng</div>
-              <h1 className="mt-5 text-[clamp(44px,6.5vw,82px)] font-extrabold leading-[1.02]">Khám phá Đà Nẵng.<span className="mt-2 block text-[#8fdcff]">Theo cách của bạn.</span></h1>
-              <p className="mt-6 max-w-2xl text-[clamp(16px,2vw,20px)] leading-8 text-white/82">Chỉ cần nói bạn muốn làm gì. UrbanAgent kết hợp sở thích, thời gian, vị trí và dữ liệu địa phương để tạo một lịch trình có thể dùng ngay.</p>
-              <div className="mt-8 flex flex-wrap gap-3">
-                <button type="button" onClick={() => openPlanner()} className="ua-button ua-button--coral">Lên kế hoạch ngay <ArrowRight size={17} /></button>
-                <a href="#experience" className="ua-button border border-white/35 bg-white/12 text-white backdrop-blur-sm hover:bg-white/20">Xem UrbanAgent hoạt động</a>
+        <section id="top" className="relative overflow-hidden bg-gradient-to-b from-[#F3FAFF] via-[#FAFCFE] to-white pb-[220px] pt-32 lg:pb-[260px]">
+          <div className="absolute right-0 top-0 h-full w-full lg:w-[58%]">
+            <ResponsiveImage src={asset('my-khe-coastline.webp')} alt="Bờ biển Mỹ Khê và thành phố Đà Nẵng" className="h-full w-full object-cover" eager sizes="(min-width: 1024px) 58vw, 100vw" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#F3FAFF] via-[#F3FAFF]/70 to-transparent lg:via-[#F3FAFF]/30" />
+            <div className="absolute inset-0 bg-white/45 lg:bg-transparent" />
+          </div>
+          <div className="ua-container relative">
+            <div className="max-w-[560px]">
+              <span className="inline-flex items-center gap-2 rounded-full border border-[#1597E5]/25 bg-white/80 px-4 py-1.5 text-[12px] font-semibold tracking-[0.14em] text-[#0767C8] backdrop-blur"><Sparkles size={14} /> TRỢ LÝ AI KHÁM PHÁ ĐÀ NẴNG</span>
+              <h1 className="mt-7 text-[46px] font-semibold leading-[1.05] text-[#0E2038] sm:text-[62px]">Khám phá Đà Nẵng.<span className="block bg-gradient-to-r from-[#1597E5] via-[#0767C8] to-[#12B9B0] bg-clip-text font-medium italic text-transparent">Theo cách của bạn.</span></h1>
+              <p className="mt-6 max-w-[470px] text-[17px] leading-relaxed text-[#607086]">Hãy nói điều bạn muốn làm. UrbanAgent kết hợp sở thích, vị trí, thời gian và dữ liệu địa phương thành một lịch trình cá nhân hóa có thể dùng ngay.</p>
+              <div className="mt-9 flex flex-wrap items-center gap-4">
+                <button type="button" onClick={() => openPlanner()} className="ua-hero-primary">Lên kế hoạch <ArrowRight size={16} /></button>
+                <a href="#ai-planner" className="ua-hero-secondary"><span><Play size={14} /></span> Xem cách hoạt động</a>
               </div>
-              <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-white/72">
-                <span>Dữ liệu địa phương</span><span>Tuyến đường thực</span><span>Lập kế hoạch bằng AI</span>
-              </div>
+              <p className="mt-8 text-[13px] text-[#607086]">Dữ liệu địa phương · Địa điểm thật · Lập kế hoạch bằng AI</p>
             </div>
           </div>
         </section>
 
-        <section className="ua-container relative z-20 -mt-20" aria-label="UrbanAgent AI Planner">
-          <div className="rounded-[24px] border border-white/80 bg-white p-4 shadow-[var(--ua-shadow-lg)] sm:p-6 lg:p-8">
-            <div className="flex gap-1 overflow-x-auto border-b border-[var(--ua-border)] pb-3">
-              <button type="button" className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[var(--ua-blue-50)] px-4 py-2.5 text-sm font-extrabold text-[var(--ua-blue-700)]"><Sparkles size={16} /> Hỏi UrbanAgent</button>
-              <button type="button" onClick={() => navigate('/map-data')} className="inline-flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-[var(--ua-text-muted)] hover:bg-slate-50"><MapPin size={16} /> Khám phá địa điểm</button>
-              <button type="button" onClick={() => navigate('/urban-agent')} className="inline-flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-[var(--ua-text-muted)] hover:bg-slate-50"><Map size={16} /> Chuyến đi</button>
-              <button type="button" onClick={() => navigate('/saved')} className="inline-flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-[var(--ua-text-muted)] hover:bg-slate-50"><Heart size={16} /> Đã lưu</button>
+        <section id="planner" className="relative z-10 mx-auto -mt-[170px] w-[calc(100%-2rem)] max-w-[1180px] rounded-[24px] bg-white p-5 shadow-[0_30px_70px_-20px_rgba(14,32,56,0.25)] ring-1 ring-[#0E2038]/5 sm:p-7" aria-label="UrbanAgent AI Planner">
+          <div className="flex flex-wrap gap-1.5 border-b border-[#0E2038]/8 pb-4">
+            <button type="button" className="ua-planner-tab is-active"><Sparkles size={16} /> Hỏi UrbanAgent</button>
+            <button type="button" onClick={() => openDiscovery()} className="ua-planner-tab"><MapPin size={16} /> Khám phá địa điểm</button>
+            <button type="button" onClick={() => navigate('/urban-agent')} className="ua-planner-tab"><Map size={16} /> Chuyến đi</button>
+            <button type="button" onClick={() => navigate('/saved')} className="ua-planner-tab"><Heart size={16} /> Đã lưu</button>
+          </div>
+          <div className="pt-6">
+            <label htmlFor="landing-planner-prompt" className="text-[13px] font-semibold uppercase tracking-[0.12em] text-[#607086]">Bạn muốn làm gì ở Đà Nẵng?</label>
+            <div className="mt-3 flex items-center gap-3 rounded-2xl bg-[#F3FAFF] px-4 py-3 ring-1 ring-transparent transition-all focus-within:bg-white focus-within:ring-2 focus-within:ring-[#1597E5]/40">
+              <Sparkles className="shrink-0 text-[#1597E5]" size={20} />
+              <input id="landing-planner-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Một quán cà phê yên tĩnh gần Mỹ Khê, ăn hải sản rồi đi dạo." className="h-11 w-full bg-transparent text-[16px] text-[#0E2038] outline-none placeholder:text-[#607086]/70" />
+              <button type="button" className="ua-planner-round-action" aria-label="Nhập bằng giọng nói"><Mic size={17} /></button>
+              <button type="button" onClick={() => openDiscovery()} className="ua-planner-round-action" aria-label="Chọn vị trí"><LocateFixed size={17} /></button>
             </div>
-            <label className="mt-5 block text-sm font-extrabold text-[var(--ua-navy-950)]" htmlFor="landing-planner-prompt">Bạn muốn trải nghiệm Đà Nẵng như thế nào?</label>
-            <textarea id="landing-planner-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} className="mt-3 min-h-28 w-full resize-none rounded-[14px] border border-[var(--ua-border)] bg-[var(--ua-blue-50)] p-4 text-base leading-7 outline-none placeholder:text-[var(--ua-text-muted)] focus:border-[var(--ua-blue-500)] focus:bg-white" placeholder="Chiều nay tôi muốn một quán café yên tĩnh gần biển, ăn hải sản vào buổi tối rồi đi dạo ở đâu đó." />
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1fr_auto]">
-              {[{ icon: CalendarDays, label: 'Khi nào', value: 'Hôm nay' }, { icon: Navigation, label: 'Khu vực', value: 'Gần tôi' }, { icon: Users, label: 'Số người', value: '2 người' }, { icon: Waves, label: 'Phong cách', value: 'Thư giãn' }].map((item) => (
-                <div key={item.label} className="flex min-h-14 items-center gap-3 rounded-xl border border-[var(--ua-border)] px-3.5">
-                  <item.icon className="text-[var(--ua-blue-600)]" size={18} />
-                  <span><small className="block text-[11px] font-bold text-[var(--ua-text-muted)]">{item.label}</small><strong className="text-sm text-[var(--ua-navy-950)]">{item.value}</strong></span>
-                </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(4,1fr)_auto]">
+              {[['Khi nào', 'Hôm nay'], ['Khu vực', 'Gần tôi'], ['Số người', '2 người'], ['Phong cách', 'Thư giãn']].map(([label, value]) => (
+                <button key={label} type="button" onClick={() => openPlanner()} className="flex items-center justify-between rounded-2xl border border-[#0E2038]/8 px-4 py-3 text-left transition hover:border-[#1597E5]/50 hover:bg-[#F3FAFF]"><span><span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#607086]">{label}</span><span className="text-[15px] font-medium text-[#0E2038]">{value}</span></span><ChevronDown size={16} className="text-[#607086]" /></button>
               ))}
-              <ProductButton type="button" onClick={() => openPlanner()} className="min-h-14 whitespace-nowrap">Tạo lịch trình <Sparkles size={16} /></ProductButton>
+              <button type="button" onClick={() => openPlanner()} className="inline-flex h-[62px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#1597E5] to-[#0767C8] px-7 text-[16px] font-medium text-white shadow-[0_14px_30px_rgba(7,103,200,0.3)] transition hover:-translate-y-0.5">Tạo lịch trình <Sparkles size={16} /></button>
             </div>
           </div>
         </section>
 
-        <section className="ua-container grid gap-3 py-12 sm:grid-cols-2 xl:grid-cols-4">
-          <FeatureCard icon={<Sparkles size={21} />} title="AI cá nhân hóa">Hiểu sở thích, thời gian và hoàn cảnh của bạn.</FeatureCard>
-          <FeatureCard icon={<MapPin size={21} />} title="Dữ liệu địa phương">Khám phá những địa điểm thật tại Đà Nẵng.</FeatureCard>
-          <FeatureCard icon={<Route size={21} />} title="Tuyến đường thông minh">Kết nối các điểm thành một chuyến đi hợp lý.</FeatureCard>
-          <FeatureCard icon={<Zap size={21} />} title="Lịch trình linh hoạt">Thay đổi kế hoạch và tính toán lại bất cứ lúc nào.</FeatureCard>
+        <section className="ua-container py-16 lg:py-20">
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              [Sparkles, 'AI cá nhân hóa', 'Lịch trình dựa trên sở thích và bối cảnh của bạn.'],
+              [Landmark, 'Hiểu địa phương', 'Gợi ý từ các địa điểm thật tại Đà Nẵng.'],
+              [Route, 'Tuyến đường thông minh', 'Giảm quãng đường không cần thiết giữa các điểm.'],
+              [RefreshCw, 'Kế hoạch linh hoạt', 'Thay đổi và tạo lại lịch trình bất cứ lúc nào.'],
+            ].map(([Icon, title, text]) => <div key={title as string} className="flex gap-4"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#DDF3FF] text-[#0767C8]"><Icon size={20} /></span><div><h2 className="text-[15px] font-semibold">{title as string}</h2><p className="mt-1.5 text-[14px] leading-relaxed text-[#607086]">{text as string}</p></div></div>)}
+          </div>
         </section>
 
-        <section id="explore" className="ua-section bg-white">
-          <div className="ua-container">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-              <SectionHeader eyebrow={<><Compass size={15} /> Đi đâu ở Đà Nẵng</>} title="Khám phá Đà Nẵng" description="Những trải nghiệm đáng thử cho mọi kiểu du khách." />
-              <button type="button" onClick={() => navigate('/map-data')} className="ua-button ua-button--secondary self-start">Xem bản đồ khám phá <ArrowRight size={16} /></button>
-            </div>
-            <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-              {destinationCards.map((card) => (
-                <button key={card.title} type="button" onClick={() => openDiscovery(card.query)} className="ua-image-card min-h-[360px] text-left">
-                  <img src={card.image} alt={card.title} loading="lazy" />
-                  <span className="absolute right-4 top-4 z-10 rounded-lg bg-white/92 p-2 text-[var(--ua-blue-700)]" aria-label={`Khám phá ${card.title}`}><Heart size={17} /></span>
-                  <span className="absolute inset-x-0 bottom-0 z-10 p-5 text-white"><small className="font-bold text-white/72">{card.tag}</small><strong className="mt-1 block text-xl">{card.title}</strong></span>
+        <section id="explore" className="ua-container py-16 lg:py-24">
+          <div className="flex flex-wrap items-end justify-between gap-6">
+            <div><h2 className="ua-landing-title">Khám phá Đà Nẵng</h2><p className="mt-3 max-w-[440px] text-[16px] text-[#607086]">Những trải nghiệm đáng khám phá cho mọi kiểu du khách.</p></div>
+            <button type="button" onClick={() => openDiscovery()} className="ua-outline-pill">Xem tất cả <ArrowRight size={16} /></button>
+          </div>
+          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {destinations.map((place) => (
+              <article key={place.title} className="group relative aspect-[4/5] overflow-hidden rounded-[20px] shadow-[0_18px_40px_-24px_rgba(14,32,56,0.35)]">
+                <button type="button" onClick={() => openDiscovery(place.query)} className="absolute inset-0 text-left" aria-label={`Khám phá ${place.title}`}>
+                  <ResponsiveImage src={place.image} alt={place.title} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.06]" sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw" />
+                  <span className="absolute inset-0 bg-gradient-to-t from-[#0E2038]/80 via-[#0E2038]/10 to-transparent" />
+                  <span className="absolute left-4 top-4 rounded-full bg-white/95 px-3 py-1 text-[12px] font-semibold text-[#0767C8]">{place.tag}</span>
+                  <span className="absolute inset-x-0 bottom-0 p-5"><strong className="block text-[19px] font-semibold text-white">{place.title}</strong><small className="mt-1 block text-[13px] text-white/80">{place.meta}</small></span>
                 </button>
-              ))}
-            </div>
+                <button type="button" onClick={() => setSaved((current) => current.includes(place.title) ? current.filter((item) => item !== place.title) : [...current, place.title])} className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full bg-white/25 text-white backdrop-blur transition hover:bg-white/40" aria-label={`Lưu ${place.title}`}><Bookmark size={16} className={saved.includes(place.title) ? 'fill-white' : ''} /></button>
+              </article>
+            ))}
           </div>
         </section>
 
-        <section className="ua-section bg-[var(--ua-blue-50)]">
+        <section id="ai-planner" className="bg-gradient-to-b from-[#F3FAFF] to-white py-20 lg:py-28">
           <div className="ua-container">
-            <SectionHeader align="center" eyebrow={<><Search size={15} /> Bắt đầu từ cảm hứng</>} title="Hôm nay bạn muốn gì?" description="Chọn một cảm hứng, UrbanAgent sẽ đưa bạn vào đúng luồng khám phá hiện có." />
-            <div className="mx-auto mt-8 flex max-w-5xl flex-wrap justify-center gap-3">
-              {moods.map((mood) => <button key={mood.label} type="button" onClick={() => openDiscovery(mood.query)} className="ua-chip"><mood.icon size={16} /> {mood.label}</button>)}
-            </div>
-          </div>
-        </section>
-
-        <section id="experience" className="ua-section bg-white">
-          <div className="ua-container grid items-center gap-12 lg:grid-cols-[.9fr_1.1fr]">
-            <div>
-              <SectionHeader eyebrow={<><Sparkles size={15} /> Từ ý định đến hành trình</>} title={<>Một yêu cầu.<br />Một lịch trình hoàn chỉnh.</>} description="UrbanAgent hiểu cả câu chuyện của chuyến đi, sau đó dùng engine hiện có để gợi ý, xếp lịch và giải thích từng điểm dừng." />
-              <div className="mt-8 space-y-4">
-                {[['Hiểu ý định', 'Không chỉ khớp từ khóa trong câu hỏi.'], ['Kết nối địa điểm', 'Mỗi điểm được chọn như một phần của cả chuyến đi.'], ['Thích ứng theo hoàn cảnh', 'Thời gian, vị trí và sở thích có thể thay đổi kế hoạch.'], ['Giải thích được', 'Bạn biết vì sao một địa điểm phù hợp.']].map(([title, detail]) => (
-                  <div key={title} className="flex gap-3"><span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--ua-blue-100)] text-[var(--ua-blue-700)]"><Check size={14} /></span><div><strong className="text-[var(--ua-navy-950)]">{title}</strong><p className="mt-1 text-sm leading-6 text-[var(--ua-text-muted)]">{detail}</p></div></div>
-                ))}
+            <h2 className="max-w-[520px] text-[34px] font-semibold leading-[1.1] text-[#0E2038] sm:text-[44px]">Một yêu cầu.<br /><span className="text-[#0767C8]">Một lịch trình hoàn chỉnh.</span></h2>
+            <div className="mt-12 grid gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
+              <div className="rounded-[24px] bg-white p-6 shadow-[0_30px_70px_-30px_rgba(14,32,56,0.3)] ring-1 ring-[#0E2038]/5">
+                <div className="ml-auto max-w-[85%] rounded-[18px] rounded-br-md bg-[#0767C8] px-5 py-4 text-[15px] leading-relaxed text-white">“Tôi muốn chiều nay ngồi cà phê yên tĩnh gần biển, khoảng 7 giờ ăn hải sản, sau đó đi dạo thư giãn.”</div>
+                <div className="mt-5 flex items-center gap-2 text-[15px] font-semibold"><Sparkles size={16} className="text-[#1597E5]" /> Mình đã lên một buổi chiều nhẹ nhàng</div>
+                <div className="mt-5 space-y-1">
+                  {timeline.map((stop, index) => <div key={stop.time} className="relative flex gap-4 rounded-2xl px-3 py-3 hover:bg-[#F3FAFF]"><div className="flex flex-col items-center"><span className="grid h-10 w-10 place-items-center rounded-full bg-[#DDF3FF] text-[16px]">{stop.icon}</span>{index < timeline.length - 1 && <span className="mt-1 w-[2px] flex-1 rounded-full bg-gradient-to-b from-[#1597E5] to-[#DDF3FF]" />}</div><div className="pb-2"><span className="text-[12px] font-semibold tracking-[0.1em] text-[#0767C8]">{stop.time}</span><h3 className="text-[16px] font-medium">{stop.title}</h3><p className="mt-0.5 text-[13px] text-[#607086]">{stop.info}</p></div></div>)}
+                </div>
+                <div className="ua-mini-map mt-4 h-[130px] overflow-hidden rounded-2xl" aria-label="Bản đồ hành trình minh họa"><span className="left-[24%] top-[54%]">1</span><span className="left-[47%] top-[34%]">2</span><span className="left-[68%] top-[61%]">3</span><small>Đường nối minh họa giữa các điểm</small></div>
               </div>
-              <button type="button" onClick={() => openPlanner('Chiều nay tôi muốn ngồi cafe yên tĩnh gần biển, ăn hải sản rồi đi dạo thư giãn.')} className="ua-button ua-button--primary mt-8">Thử UrbanAgent <ArrowRight size={16} /></button>
-            </div>
-            <div className="ua-card overflow-hidden p-4 sm:p-6">
-              <div className="rounded-[16px] bg-[var(--ua-navy-950)] p-5 text-white"><small className="font-bold text-[#8fdcff]">Yêu cầu minh họa</small><p className="mt-2 leading-7">“Tôi muốn chiều nay ngồi café yên tĩnh gần biển, khoảng 7 giờ ăn hải sản, sau đó đi dạo thư giãn.”</p></div>
-              <div className="mt-5 flex items-center gap-3"><span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--ua-blue-600)] text-white"><Sparkles size={17} /></span><div><strong>Mình đã sắp xếp một buổi chiều nhẹ nhàng</strong><p className="text-xs text-[var(--ua-text-muted)]">Ví dụ giải thích sản phẩm, không phải chuyến đi hiện tại.</p></div></div>
-              <div className="relative mt-6 space-y-1 before:absolute before:bottom-5 before:left-[41px] before:top-5 before:w-px before:bg-[var(--ua-border)]">
-                {timeline.map((stop) => <div key={stop.time} className="relative grid grid-cols-[66px_1fr] gap-4 rounded-xl p-3 hover:bg-[var(--ua-blue-50)]"><strong className="z-10 rounded-lg bg-white py-1 text-center text-sm text-[var(--ua-blue-700)]">{stop.time}</strong><div><strong className="text-[var(--ua-navy-950)]">{stop.title}</strong><p className="mt-1 text-xs leading-5 text-[var(--ua-text-muted)]">{stop.detail}</p></div></div>)}
+              <div>
+                <div className="space-y-8">
+                  {[[Brain, 'Hiểu ý định', 'UrbanAgent diễn giải điều bạn thật sự muốn.'], [Route, 'Kết nối địa điểm hợp lý', 'Các điểm được chọn như một phần của cả chuyến đi.'], [CloudSun, 'Thích ứng theo bối cảnh', 'Thời gian, vị trí và sở thích có thể thay đổi kế hoạch.'], [MessageSquareQuote, 'Gợi ý có giải thích', 'Bạn có thể xem vì sao một địa điểm phù hợp.']].map(([Icon, title, text]) => <div key={title as string} className="flex gap-4"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-[#0767C8] shadow-[0_8px_20px_-8px_rgba(7,103,200,0.5)]"><Icon size={20} /></span><div><h3 className="text-[17px] font-semibold">{title as string}</h3><p className="mt-1.5 text-[15px] leading-relaxed text-[#607086]">{text as string}</p></div></div>)}
+                </div>
+                <button type="button" onClick={() => openPlanner('Chiều nay tôi muốn ngồi cà phê yên tĩnh gần biển, ăn hải sản rồi đi dạo thư giãn.')} className="ua-hero-primary mt-10">Thử UrbanAgent <ArrowRight size={16} /></button>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="ua-section bg-[var(--ua-blue-50)]">
-          <div className="ua-container grid items-center gap-10 lg:grid-cols-[1.1fr_.9fr]">
-            <div className="relative min-h-[480px] overflow-hidden rounded-[24px]">
-              <img src="/images/da-nang/dragon-bridge.jpg" alt="Cầu Rồng bên sông Hàn" className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
-              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(5,30,55,.05),rgba(5,30,55,.8))]" />
-              <div className="absolute inset-x-5 bottom-5 rounded-[16px] border border-white/25 bg-white/92 p-5 shadow-lg backdrop-blur">
-                <div className="flex items-center justify-between gap-3"><div><small className="font-bold text-[var(--ua-blue-700)]">Minh họa trực quan</small><strong className="mt-1 block text-lg">Xem cả ngày trong một bản đồ</strong></div><span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--ua-blue-600)] text-white"><Route size={19} /></span></div>
-                <p className="mt-2 text-sm leading-6 text-[var(--ua-text-muted)]">Trong sản phẩm thật, bản đồ dùng các điểm dừng và route geometry từ chuyến đi hiện tại.</p>
-              </div>
-            </div>
-            <div id="why">
-              <SectionHeader eyebrow={<><ShieldCheck size={15} /> Thiết kế để đi được thật</>} title="Vì sao khám phá cùng UrbanAgent?" />
-              <div className="mt-8 grid gap-4 sm:grid-cols-2">
-                <FeatureCard icon={<Search size={20} />} title="Không chỉ tìm kiếm">Hiểu cả yêu cầu thay vì chỉ khớp từ khóa.</FeatureCard>
-                <FeatureCard icon={<CalendarDays size={20} />} title="Lên kế hoạch theo cả ngày">Nối địa điểm thành một lịch trình thực tế.</FeatureCard>
-                <FeatureCard icon={<Compass size={20} />} title="Hiểu Đà Nẵng">Thiết kế quanh khu vực và bối cảnh địa phương.</FeatureCard>
-                <FeatureCard icon={<Sparkles size={20} />} title="Cá nhân hóa">Thích ứng theo sở thích, ngân sách và nhịp đi.</FeatureCard>
-              </div>
+        <section className="ua-container py-16 lg:py-24">
+          <h2 className="ua-landing-title">Xem cả ngày trên một bản đồ</h2>
+          <div className="relative mt-10 h-[420px] overflow-hidden rounded-[24px] shadow-[0_30px_70px_-30px_rgba(14,32,56,0.3)] ring-1 ring-[#0E2038]/8 sm:h-[520px]">
+            <MapContainer center={[16.063, 108.237]} zoom={14} scrollWheelZoom={false} zoomControl={false} style={{ height: '100%', width: '100%' }}>
+              <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              <Polyline positions={routePositions} pathOptions={{ color: '#0767C8', weight: 4, opacity: 0.85, dashArray: '8 8' }} />
+              {mapStops.map((stop, index) => <Marker key={stop.name} position={stop.position} icon={mapMarker(index + 1, selectedMarker === index + 1)} eventHandlers={{ click: () => setSelectedMarker(index + 1) }}><Popup><strong>{index + 1}. {stop.name}</strong><br />Đường nối minh họa giữa các điểm</Popup></Marker>)}
+            </MapContainer>
+            <div className="absolute bottom-5 left-5 right-5 z-[500] rounded-[20px] bg-white/95 p-5 backdrop-blur sm:right-auto sm:w-[300px]">
+              <h3 className="text-[17px] font-semibold">Buổi tối của bạn</h3>
+              <div className="mt-4 space-y-2.5 text-[14px] text-[#607086]"><p className="flex items-center gap-2"><MapPin size={16} className="text-[#0767C8]" /> 4 điểm dừng</p><p className="flex items-center gap-2"><Footprints size={16} className="text-[#0767C8]" /> 7,2 km minh họa</p><p className="flex items-center gap-2"><Clock size={16} className="text-[#0767C8]" /> Thời gian di chuyển ước tính</p></div>
+              <button type="button" onClick={() => openPlanner()} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#0767C8] text-[15px] font-medium text-white"><Route size={16} /> Mở trình lập kế hoạch</button>
+              <p className="mt-3 text-[11px] leading-4 text-[#607086]">Đường nối minh họa giữa các điểm, không phải chỉ dẫn đường bộ.</p>
             </div>
           </div>
         </section>
 
-        <section id="business" className="ua-section bg-white">
-          <div className="ua-container grid items-center gap-10 lg:grid-cols-[.85fr_1.15fr]">
-            <div>
-              <SectionHeader eyebrow={<><BriefcaseBusiness size={15} /> UrbanAgent for Business</>} title="Hiểu nơi khách hàng của bạn đang ở." description="So sánh khu vực dựa trên nhu cầu, khả năng tiếp cận, cạnh tranh và hoạt động xung quanh." />
-              <button type="button" onClick={() => navigate('/seller')} className="ua-button ua-button--secondary mt-8">Khám phá Business Insights <ArrowRight size={16} /></button>
-            </div>
-            <div className="ua-card p-6 sm:p-8">
-              <div className="rounded-[16px] bg-[var(--ua-blue-50)] p-5"><small className="font-bold text-[var(--ua-blue-700)]">Câu hỏi kinh doanh</small><p className="mt-2 text-xl font-extrabold">“Nên mở study café ở đâu tại Đà Nẵng?”</p></div>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">{['Nhu cầu sinh viên cao', 'Cạnh tranh vừa', 'Lưu lượng buổi tối tốt', 'Gần cụm trường đại học'].map((item) => <div key={item} className="flex items-center gap-3 rounded-xl border border-[var(--ua-border)] p-4 text-sm font-bold"><Check className="text-[var(--ua-aqua)]" size={17} /> {item}</div>)}</div>
+        <section id="experiences" className="bg-[#FAFCFE] py-20 lg:py-24">
+          <div className="ua-container">
+            <h2 className="ua-landing-title">Hôm nay bạn muốn trải nghiệm gì?</h2>
+            <div className="mt-8 flex flex-wrap gap-3">{moodGroups.map((item) => <button key={item.label} type="button" onClick={() => setActiveMood(item.label)} className={`ua-mood-pill${activeMood === item.label ? ' is-active' : ''}`}>{item.label}</button>)}</div>
+            <div className="mt-10 grid gap-6 sm:grid-cols-3">
+              {mood.cards.map(([title, meta]) => <button key={title} type="button" onClick={() => openDiscovery(`${mood.query} ${title}`)} className="group overflow-hidden rounded-[20px] bg-white text-left ring-1 ring-[#0E2038]/6 transition hover:-translate-y-1 hover:shadow-[0_24px_50px_-30px_rgba(14,32,56,0.4)]"><span className="block aspect-[4/3] overflow-hidden"><ResponsiveImage src={mood.image} alt={title} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105" sizes="(min-width: 640px) 33vw, 100vw" /></span><span className="block p-5"><strong className="text-[17px] font-semibold">{title}</strong><small className="mt-1 block text-[13px] text-[#607086]">{meta}</small></span></button>)}
             </div>
           </div>
         </section>
 
-        <section className="ua-container pb-20">
-          <div className="relative overflow-hidden rounded-[24px] bg-[var(--ua-navy-950)] px-6 py-16 text-white sm:px-12 lg:px-16">
-            <img src="/images/da-nang/golden-bridge-sunset.webp" alt="Cầu Vàng trong ánh hoàng hôn" className="absolute inset-0 h-full w-full object-cover opacity-45" loading="lazy" />
-            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(7,31,56,.96),rgba(7,31,56,.54))]" />
-            <div className="relative max-w-3xl"><div className="ua-eyebrow text-[#bceaff]">Sẵn sàng khám phá?</div><h2 className="mt-4 text-3xl font-extrabold leading-tight sm:text-5xl">Trải nghiệm Đà Nẵng tiếp theo bắt đầu bằng một câu hỏi.</h2><div className="mt-8 flex flex-wrap gap-3"><button type="button" onClick={() => openPlanner()} className="ua-button ua-button--coral">Hỏi UrbanAgent <Sparkles size={16} /></button><button type="button" onClick={() => navigate('/map-data')} className="ua-button border border-white/35 bg-white/12 text-white">Khám phá Đà Nẵng</button></div></div>
+        <section id="about" className="ua-container py-20 lg:py-24">
+          <h2 className="ua-landing-title max-w-[520px]">Vì sao khám phá cùng UrbanAgent?</h2>
+          <div className="mt-12 grid gap-x-14 gap-y-10 sm:grid-cols-2">
+            {[[Search, 'Không chỉ là tìm kiếm', 'UrbanAgent hiểu cả yêu cầu thay vì chỉ khớp từ khóa.'], [CalendarClock, 'Thiết kế quanh ngày của bạn', 'Gợi ý được kết nối thành lịch trình thực tế.'], [Building2, 'Hiểu địa phương', 'Xây dựng quanh địa điểm và bối cảnh Đà Nẵng.'], [SlidersHorizontal, 'Sở thích của bạn quan trọng', 'Kế hoạch thích ứng theo ngân sách, nhịp đi và phong cách.']].map(([Icon, title, text]) => <div key={title as string} className="flex gap-5"><span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-[#DDF3FF] text-[#0767C8]"><Icon size={24} /></span><div><h3 className="text-[18px] font-semibold">{title as string}</h3><p className="mt-2 text-[15px] leading-relaxed text-[#607086]">{text as string}</p></div></div>)}
+          </div>
+        </section>
+
+        <section id="for-business" className="ua-container pb-20 lg:pb-24">
+          <div className="grid gap-10 rounded-[28px] bg-gradient-to-br from-[#0E2038] via-[#0B3A6E] to-[#0767C8] p-8 lg:grid-cols-2 lg:items-center lg:p-14">
+            <div><span className="text-[12px] font-semibold tracking-[0.18em] text-[#8FD3FF]">URBANAGENT FOR BUSINESS</span><h2 className="mt-5 text-[30px] font-semibold leading-tight text-white sm:text-[38px]">Hiểu nơi khách hàng của bạn đang ở.</h2><p className="mt-5 max-w-[460px] text-[15px] leading-relaxed text-white/70">So sánh khu vực dựa trên nhu cầu, khả năng tiếp cận, cạnh tranh và hoạt động xung quanh.</p><button type="button" onClick={() => navigate('/seller')} className="mt-8 inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-[15px] font-medium text-[#0767C8]">Khám phá Business Insights <ArrowRight size={16} /></button></div>
+            <div className="rounded-[22px] bg-white/10 p-5 ring-1 ring-white/15 backdrop-blur"><div className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3.5"><Sparkles size={16} className="text-[#1597E5]" /><p className="text-[14px] text-[#0E2038]">“Nên mở study café ở đâu tại Đà Nẵng?”</p></div><div className="mt-4 flex flex-wrap gap-2.5">{['Nhu cầu sinh viên cao', 'Cạnh tranh vừa', 'Lưu lượng buổi tối tốt', 'Gần cụm đại học'].map((item) => <span key={item} className="rounded-full bg-[#DDF3FF]/20 px-4 py-2 text-[13px] font-medium text-white ring-1 ring-white/20">{item}</span>)}</div></div>
+          </div>
+        </section>
+
+        <section className="ua-container pb-20 lg:pb-28">
+          <div className="relative h-[380px] overflow-hidden rounded-[28px] sm:h-[420px]">
+            <ResponsiveImage src={asset('golden-bridge-sunset.webp')} alt="Đà Nẵng trong ánh hoàng hôn" className="h-full w-full object-cover" sizes="(min-width: 1280px) 1280px, 100vw" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#0E2038]/85 via-[#0E2038]/55 to-transparent" />
+            <div className="absolute inset-0 flex items-center"><div className="max-w-[560px] p-8 sm:p-14"><span className="text-[12px] font-semibold tracking-[0.18em] text-[#8FD3FF]">SẴN SÀNG KHÁM PHÁ?</span><h2 className="mt-4 text-[30px] font-semibold leading-[1.15] text-white sm:text-[40px]">Trải nghiệm Đà Nẵng tiếp theo bắt đầu bằng một câu hỏi.</h2><div className="mt-8 flex flex-wrap gap-4"><button type="button" onClick={() => openPlanner()} className="inline-flex items-center gap-2 rounded-full bg-white px-7 py-4 text-[16px] font-medium text-[#0767C8]">Hỏi UrbanAgent <Sparkles size={16} /></button><button type="button" onClick={() => openDiscovery()} className="inline-flex items-center rounded-full px-7 py-4 text-[16px] font-medium text-white ring-1 ring-white/50">Khám phá Đà Nẵng</button></div></div></div>
           </div>
         </section>
       </main>
 
-      <footer className="bg-[var(--ua-navy-950)] py-14 text-white">
-        <div className="ua-container grid gap-10 md:grid-cols-[1.3fr_1fr_1fr_1fr]">
-          <div><BrandMark inverse /><p className="mt-5 max-w-xs text-sm leading-6 text-white/60">Một câu hỏi, một hành trình Đà Nẵng rõ ràng và có thể chỉnh sửa.</p></div>
-          {[['Khám phá', ['Địa điểm', 'Trải nghiệm', 'AI Planner', 'Đã lưu']], ['UrbanAgent', ['Giới thiệu', 'Cách hoạt động', 'Doanh nghiệp']], ['Hỗ trợ', ['Trợ giúp', 'Quyền riêng tư', 'Điều khoản']]].map(([title, links]) => <div key={title as string}><strong>{title}</strong><div className="mt-4 space-y-3 text-sm text-white/60">{(links as string[]).map((link) => <p key={link}>{link}</p>)}</div></div>)}
+      <footer className="border-t border-[#0E2038]/8 bg-[#FAFCFE]">
+        <div className="ua-container py-16">
+          <div className="grid gap-12 lg:grid-cols-[1.4fr_repeat(3,1fr)]">
+            <div><BrandMark showTagline={false} /><p className="mt-4 text-[15px] text-[#607086]">Khám phá Đà Nẵng thông minh hơn.</p></div>
+            <FooterColumn title="Khám phá" links={[['Địa điểm', '#explore'], ['Trải nghiệm', '#experiences'], ['AI Planner', '#ai-planner'], ['Đã lưu', '/saved']]} />
+            <FooterColumn title="UrbanAgent" links={[['Giới thiệu', '#about'], ['Cách hoạt động', '#ai-planner'], ['Doanh nghiệp', '#for-business']]} />
+            <FooterColumn title="Sản phẩm" links={[['Lập lịch trình', '/urban-agent'], ['Bản đồ khám phá', '/map-data'], ['Đăng nhập', '/login']]} />
+          </div>
+          <div className="mt-14 flex flex-wrap items-center justify-between gap-3 border-t border-[#0E2038]/8 pt-6 text-[13px] text-[#607086]"><p>© 2026 UrbanAgent AI.</p><p>Được xây dựng cho Đà Nẵng, Việt Nam.</p></div>
         </div>
-        <div className="ua-container mt-12 flex flex-col gap-2 border-t border-white/10 pt-6 text-xs text-white/50 sm:flex-row sm:justify-between"><span>© 2026 UrbanAgent AI.</span><span>Built for Da Nang, Vietnam.</span></div>
       </footer>
     </div>
   );
+}
+
+function FooterColumn({ title, links }: { title: string; links: [string, string][] }) {
+  return <div><h2 className="text-[14px] font-semibold">{title}</h2><ul className="mt-4 space-y-3">{links.map(([label, href]) => <li key={label}>{href.startsWith('/') ? <Link to={href} className="text-[15px] text-[#607086] hover:text-[#0767C8]">{label}</Link> : <a href={href} className="text-[15px] text-[#607086] hover:text-[#0767C8]">{label}</a>}</li>)}</ul></div>;
 }
