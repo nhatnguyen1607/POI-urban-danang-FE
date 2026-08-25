@@ -153,7 +153,14 @@ export function LoginPage() {
 }
 
 export function AdminLoginPage() {
-  const { user, role, loading, authError, signInWithAdmin } = useAuth();
+  const {
+    user,
+    loading,
+    firebaseReady,
+    authError,
+    signInWithEmail,
+    signInWithGoogle,
+  } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -161,14 +168,29 @@ export function AdminLoginPage() {
   const [localError, setLocalError] = useState('');
 
   if (loading) return <AuthLoading />;
-  if (user && role === 'admin') return <Navigate to="/admin" replace />;
+  if (user) return <Navigate to="/admin" replace />;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setSubmitting(true);
     setLocalError('');
     try {
-      await signInWithAdmin(email, password);
+      const signedInUser = await signInWithEmail(email, password);
+      await signedInUser.getIdToken(true);
+      navigate('/admin', { replace: true });
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'Không thể đăng nhập admin.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const signInGoogle = async () => {
+    setSubmitting(true);
+    setLocalError('');
+    try {
+      const signedInUser = await signInWithGoogle();
+      await signedInUser.getIdToken(true);
       navigate('/admin', { replace: true });
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : 'Không thể đăng nhập admin.');
@@ -180,16 +202,25 @@ export function AdminLoginPage() {
   return (
     <AuthShell badge="Admin Control Panel" title="Đăng nhập quản trị viên" subtitle="Khu vực riêng cho duyệt dữ liệu, quản lý hệ thống và giám sát AI.">
       <form onSubmit={submit} className="space-y-4">
-        <Input icon={<ShieldCheck size={18} />} type="text" value={email} onChange={setEmail} placeholder="Tài khoản admin" />
+        <Input icon={<ShieldCheck size={18} />} type="email" value={email} onChange={setEmail} placeholder="Email Firebase" />
         <Input icon={<LockKeyhole size={18} />} type="password" value={password} onChange={setPassword} placeholder="Mật khẩu" />
         {(localError || authError) && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{localError || authError}</p>}
         <button
           type="submit"
-          disabled={submitting}
+          disabled={!firebaseReady || submitting}
           className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-3 font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting && <Loader2 className="animate-spin" size={18} />}
           Vào trang admin
+        </button>
+        <button
+          type="button"
+          onClick={signInGoogle}
+          disabled={!firebaseReady || submitting}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Sparkles size={18} />
+          Đăng nhập bằng Google
         </button>
       </form>
     </AuthShell>

@@ -13,7 +13,7 @@ import {
   PlugZap,
   Search,
   Settings,
-  ShieldAlert,
+  ShieldCheck,
   Users,
   X,
   type LucideIcon,
@@ -169,13 +169,13 @@ export function AdminShell({
           </Link>
         </header>
         <main className="ua-admin-main">
-          <div className="ua-admin-security-note" role="note">
-            <ShieldAlert size={18} />
+          <div className="ua-admin-security-note is-verified" role="note">
+            <ShieldCheck size={18} />
             <div>
-              <strong>ADMIN_AUTH_BACKEND_REQUIRED</strong>
+              <strong>Firebase Admin claim verified</strong>
               <span>{language === 'vi'
-                ? 'Dashboard chỉ dùng các nguồn công khai an toàn. Quyền admin hiện tại chưa phải ranh giới bảo mật phía máy chủ.'
-                : 'This dashboard only uses safe public sources. The current admin role is not yet a server-enforced security boundary.'}</span>
+                ? 'Backend đã xác minh ID token và custom claim admin trước khi tải dữ liệu quản trị chỉ đọc.'
+                : 'The backend verified the ID token and Admin custom claim before loading read-only Admin data.'}</span>
             </div>
           </div>
           <div className="ua-admin-page-heading">

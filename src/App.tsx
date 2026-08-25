@@ -13,6 +13,7 @@ import {
 } from './pages/role/RolePages';
 import type { AppRole } from './auth/authContextValue';
 import { JourneyPreloaderProvider } from './components/preloader/JourneyPreloaderProvider';
+import { AdminRouteGuard, AdminRouteSkeleton } from './pages/admin/AdminRouteGuard';
 
 const LandingPage = lazy(() => import('./pages/landing/LandingPage'));
 const DashboardPage = lazy(() => import('./pages/dashboard/DashboardPage'));
@@ -24,18 +25,6 @@ const defaultPath: Record<AppRole, string> = {
   seller: '/seller',
   admin: '/admin',
 };
-
-function AdminRouteSkeleton() {
-  return (
-    <div className="min-h-screen bg-[#fafcfe] p-5" data-admin-loading="skeleton" role="status">
-      <div className="mx-auto h-14 max-w-6xl animate-pulse rounded-lg bg-slate-200" />
-      <div className="mx-auto mt-5 grid max-w-6xl gap-3 md:grid-cols-3">
-        {[1, 2, 3].map((item) => <div key={item} className="h-28 animate-pulse rounded-lg bg-slate-200" />)}
-      </div>
-      <span className="sr-only">Đang tải không gian quản trị...</span>
-    </div>
-  );
-}
 
 function RequireRole({ roles }: { roles: AppRole[] }) {
   const { user, role, loading } = useAuth();
@@ -108,7 +97,7 @@ function App() {
               </Route>
             </Route>
 
-            <Route element={<RequireRole roles={['admin']} />}>
+            <Route element={<AdminRouteGuard />}>
               <Route path="/admin/*" element={<Suspense fallback={<AdminRouteSkeleton />}><AdminApp /></Suspense>} />
             </Route>
 

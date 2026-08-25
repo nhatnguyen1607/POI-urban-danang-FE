@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import {
   Activity,
   Bot,
+  ChevronLeft,
+  ChevronRight,
   CircleHelp,
   CloudCog,
   Database,
@@ -16,7 +18,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
-import type { SafeAdminSnapshot, ServiceStatus } from './adminData';
+import { useAdminUsers, type SafeAdminSnapshot, type ServiceStatus } from './adminData';
 
 function statusLabel(status: ServiceStatus, language: 'vi' | 'en') {
   const labels = {
@@ -79,11 +81,11 @@ function SectionHeading({ title, description, action }: { title: string; descrip
 function SystemRows({ snapshot }: { snapshot: SafeAdminSnapshot }) {
   const { language } = useLanguage();
   const rows: Array<{ service: string; status: ServiceStatus; message: string }> = [
-    { service: 'Backend API', status: snapshot.backendStatus, message: language === 'vi' ? 'Kiểm tra qua báo cáo chất lượng POI công khai.' : 'Checked through the public POI quality report.' },
+    { service: 'Backend API', status: snapshot.backendStatus, message: language === 'vi' ? 'Nguồn: Admin Health API đã xác thực.' : 'Source: authenticated Admin Health API.' },
     { service: language === 'vi' ? 'Bộ dữ liệu POI' : 'POI dataset', status: snapshot.canonicalPois !== null && snapshot.canonicalPois > 0 && snapshot.canonicalHeaderValid !== false ? 'active' : snapshot.backendStatus === 'unavailable' ? 'unavailable' : 'unknown', message: snapshot.canonicalPois === null ? '—' : `${snapshot.canonicalPois.toLocaleString('en-US')} application POIs` },
-    { service: 'OSRM', status: 'unknown', message: language === 'vi' ? 'Chưa có health contract riêng.' : 'No dedicated health contract.' },
-    { service: 'Google Maps', status: 'waiting', message: 'GOOGLE_LIVE_CONFIGURATION_PENDING' },
-    { service: 'Photon', status: 'unknown', message: language === 'vi' ? 'Chưa có health contract riêng.' : 'No dedicated health contract.' },
+    { service: 'OSRM', status: snapshot.osrmStatus, message: language === 'vi' ? 'Chưa có kiểm tra live phía máy chủ.' : 'No server-side live check yet.' },
+    { service: 'Google Maps', status: snapshot.googleStatus, message: 'GOOGLE_LIVE_CONFIGURATION_PENDING' },
+    { service: 'Photon', status: snapshot.photonStatus, message: language === 'vi' ? 'Đã cấu hình; chưa kiểm tra live trong health request.' : 'Configured; not live-checked by the health request.' },
     { service: 'Firebase Admin', status: snapshot.firebaseStatus, message: language === 'vi' ? 'Chỉ hiển thị cờ readiness, không hiển thị cấu hình.' : 'Readiness flag only; configuration is never displayed.' },
   ];
   return (
@@ -128,7 +130,54 @@ export function AdminOverview({ snapshot, refresh }: { snapshot: SafeAdminSnapsh
 
 export function AdminUsers() {
   const { language } = useLanguage();
-  return <UnavailableState icon={<Users size={22} />} title={language === 'vi' ? 'Danh sách người dùng chưa khả dụng' : 'User list unavailable'} description={language === 'vi' ? 'Danh sách người dùng cần Admin API để truy cập an toàn. Frontend không truy vấn Firebase Auth users.' : 'A secure Admin API is required. The frontend does not query Firebase Auth users.'} />;
+  const {
+    users,
+    loading,
+    error,
+    page,
+    canPrevious,
+    canNext,
+    previous,
+    next,
+    retry,
+  } = useAdminUsers();
+
+  if (loading) return <div className="ua-admin-skeleton ua-admin-skeleton--table" role="status" aria-label="Loading users" />;
+  if (error) {
+    return (
+      <div className="ua-admin-stack" data-admin-view="users-error">
+        <UnavailableState icon={<Users size={22} />} title={language === 'vi' ? 'Không thể tải người dùng' : 'Users unavailable'} description={error} />
+        <button type="button" className="ua-admin-secondary-button ua-admin-retry" onClick={retry}><RefreshCw size={15} />{language === 'vi' ? 'Thử lại' : 'Retry'}</button>
+      </div>
+    );
+  }
+  if (!users.length) {
+    return <UnavailableState icon={<Users size={22} />} title={language === 'vi' ? 'Chưa có người dùng' : 'No users found'} description={language === 'vi' ? 'Firebase Auth không trả về tài khoản nào trong trang này.' : 'Firebase Auth returned no accounts on this page.'} />;
+  }
+
+  return (
+    <div className="ua-admin-stack" data-admin-view="users">
+      <div className="ua-admin-table-wrap">
+        <table className="ua-admin-table">
+          <thead><tr><th>{language === 'vi' ? 'Người dùng' : 'User'}</th><th>{language === 'vi' ? 'Xác minh' : 'Verified'}</th><th>Admin</th><th>{language === 'vi' ? 'Trạng thái' : 'Status'}</th><th>{language === 'vi' ? 'Đăng nhập gần nhất' : 'Last sign-in'}</th></tr></thead>
+          <tbody>{users.map((user) => (
+            <tr key={user.uid}>
+              <td><strong>{user.displayName || user.email || user.uid}</strong><span className="ua-admin-table__secondary">{user.email || user.uid}</span></td>
+              <td>{user.emailVerified ? (language === 'vi' ? 'Đã xác minh' : 'Verified') : '—'}</td>
+              <td>{user.admin ? 'Yes' : 'No'}</td>
+              <td><StatusBadge status={user.disabled ? 'unavailable' : 'active'} /></td>
+              <td>{user.lastSignInTime ? new Date(user.lastSignInTime).toLocaleString(language === 'vi' ? 'vi-VN' : 'en-US') : '—'}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      <div className="ua-admin-pagination">
+        <button type="button" onClick={previous} disabled={!canPrevious}><ChevronLeft size={15} />{language === 'vi' ? 'Trang trước' : 'Previous'}</button>
+        <span>{language === 'vi' ? 'Trang' : 'Page'} {page}</span>
+        <button type="button" onClick={next} disabled={!canNext}>{language === 'vi' ? 'Trang sau' : 'Next'}<ChevronRight size={15} /></button>
+      </div>
+    </div>
+  );
 }
 
 export function AdminPoi({ snapshot }: { snapshot: SafeAdminSnapshot }) {
@@ -137,13 +186,13 @@ export function AdminPoi({ snapshot }: { snapshot: SafeAdminSnapshot }) {
     <div className="ua-admin-stack" data-admin-view="poi">
       <div className="ua-admin-metric-grid ua-admin-metric-grid--compact">
         <MetricCard icon={<Database size={19} />} label="Canonical POIs" value={snapshot.canonicalPois?.toLocaleString('en-US') || '—'} helper={language === 'vi' ? 'Runtime Da Nang hiện tại' : 'Current Da Nang runtime'} />
-        <MetricCard icon={<ShieldCheck size={19} />} label={language === 'vi' ? 'Schema canonical' : 'Canonical schema'} value={snapshot.canonicalHeaderValid === null ? '—' : snapshot.canonicalHeaderValid ? 'PASS' : 'FAIL'} helper={language === 'vi' ? 'Báo cáo chất lượng công khai' : 'Public quality report'} />
+        <MetricCard icon={<ShieldCheck size={19} />} label={language === 'vi' ? 'Schema canonical' : 'Canonical schema'} value={snapshot.canonicalHeaderValid === null ? '—' : snapshot.canonicalHeaderValid ? 'PASS' : 'FAIL'} helper={language === 'vi' ? 'Nguồn: Admin POI Summary' : 'Source: Admin POI Summary'} />
       </div>
       <div className="ua-admin-filterbar" aria-disabled="true">
         <span><Search size={15} />{language === 'vi' ? 'Tìm POI' : 'Search POIs'}</span>
         <span><SlidersHorizontal size={15} />{language === 'vi' ? 'Danh mục / nguồn / trạng thái' : 'Category / source / status'}</span>
       </div>
-      <UnavailableState icon={<MapPinned size={22} />} title={language === 'vi' ? 'Bảng POI quản trị cần Admin API' : 'POI management table requires an Admin API'} description={language === 'vi' ? 'Không bật thao tác sửa, xóa hay đồng bộ ở phía trình duyệt khi chưa có phân quyền máy chủ.' : 'Browser-side edit, delete, and sync actions remain disabled until server authorization exists.'} />
+      <UnavailableState icon={<MapPinned size={22} />} title={language === 'vi' ? 'Quản lý POI đang ở chế độ chỉ đọc' : 'POI administration is read-only'} description={language === 'vi' ? 'Backend chỉ cung cấp tổng hợp canonical an toàn; sửa, xóa và đồng bộ chưa được hỗ trợ.' : 'The backend exposes only a safe canonical summary; edit, delete, and sync are unsupported.'} />
     </div>
   );
 }
@@ -166,9 +215,9 @@ export function AdminAgent() {
 export function AdminIntegrations({ snapshot }: { snapshot: SafeAdminSnapshot }) {
   const { language } = useLanguage();
   const items: Array<{ name: string; purpose: string; status: ServiceStatus; note: string; icon: ReactNode }> = [
-    { name: 'Google Maps', purpose: language === 'vi' ? 'Tìm địa điểm và bàn giao bản đồ' : 'Place search and map handoff', status: 'waiting', note: 'GOOGLE_LIVE_CONFIGURATION_PENDING', icon: <Map size={20} /> },
-    { name: 'Photon', purpose: language === 'vi' ? 'Geocoding dự phòng' : 'Fallback geocoding', status: 'unknown', note: language === 'vi' ? 'Chưa có health contract.' : 'No health contract.', icon: <Search size={20} /> },
-    { name: 'OSRM', purpose: language === 'vi' ? 'Ước tính lộ trình đường bộ' : 'Road-route estimation', status: 'unknown', note: language === 'vi' ? 'Chưa có health contract.' : 'No health contract.', icon: <MapPinned size={20} /> },
+    { name: 'Google Maps', purpose: language === 'vi' ? 'Tìm địa điểm và bàn giao bản đồ' : 'Place search and map handoff', status: snapshot.googleStatus, note: 'GOOGLE_LIVE_CONFIGURATION_PENDING', icon: <Map size={20} /> },
+    { name: 'Photon', purpose: language === 'vi' ? 'Geocoding dự phòng' : 'Fallback geocoding', status: snapshot.photonStatus, note: language === 'vi' ? 'Trạng thái từ Admin Health API; chưa live-check.' : 'Status from Admin Health API; not live-checked.', icon: <Search size={20} /> },
+    { name: 'OSRM', purpose: language === 'vi' ? 'Ước tính lộ trình đường bộ' : 'Road-route estimation', status: snapshot.osrmStatus, note: language === 'vi' ? 'Chưa có kiểm tra live phía máy chủ.' : 'No server-side live check yet.', icon: <MapPinned size={20} /> },
     { name: 'Firebase', purpose: language === 'vi' ? 'Xác thực và dữ liệu người dùng' : 'Authentication and user data', status: snapshot.firebaseStatus, note: language === 'vi' ? 'Không hiển thị project ID, key hoặc token.' : 'Project ID, keys, and tokens are never displayed.', icon: <CloudCog size={20} /> },
   ];
   return <div className="ua-admin-integration-grid" data-admin-view="integrations">{items.map((item) => <article key={item.name} className="ua-admin-integration"><div className="ua-admin-integration__icon">{item.icon}</div><div><h2>{item.name}</h2><p>{item.purpose}</p><StatusBadge status={item.status} /><span>{item.note}</span></div></article>)}</div>;

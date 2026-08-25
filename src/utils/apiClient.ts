@@ -18,6 +18,18 @@ const getApiUrl = () => {
 
 export const getApiBaseUrl = getApiUrl;
 
+export class ApiClientError extends Error {
+  status: number;
+  code: string | null;
+
+  constructor(message: string, status: number, code: string | null = null) {
+    super(message);
+    this.name = 'ApiClientError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
 const fetchWithNetworkMessage = async (input: RequestInfo | URL, init?: RequestInit) => {
   try {
     return await fetch(input, init);
@@ -37,13 +49,11 @@ const mergeHeaders = async (...headersList: Array<HeadersInit | undefined>) => {
   });
 
   const token = await getFirebaseIdToken();
-  const localAdminToken = localStorage.getItem('danang-local-admin-token');
   const demoToken = demoAuthMode && sessionStorage.getItem(demoSessionKey) === 'true'
     ? 'urbanagent-demo-local-token'
     : null;
   if (token) merged.set('Authorization', `Bearer ${token}`);
-  if (!token && localAdminToken) merged.set('Authorization', `Bearer ${localAdminToken}`);
-  if (!token && !localAdminToken && demoToken) merged.set('Authorization', `Bearer ${demoToken}`);
+  if (!token && demoToken) merged.set('Authorization', `Bearer ${demoToken}`);
 
   return Object.fromEntries(merged.entries());
 };
@@ -60,10 +70,15 @@ export const apiClient = {
     if (!response.ok) {
       try {
         const payload = text ? JSON.parse(text) : null;
-        throw new Error(payload?.error?.message || payload?.details || payload?.error || `API Error: ${response.status} ${response.statusText}`);
+        const code = typeof payload?.error === 'string' ? payload.error : payload?.error?.code || null;
+        throw new ApiClientError(
+          payload?.error?.message || payload?.details || code || `API Error: ${response.status} ${response.statusText}`,
+          response.status,
+          code,
+        );
       } catch (error) {
-        if (error instanceof Error && !error.message.startsWith('Unexpected token')) throw error;
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+        if (error instanceof ApiClientError) throw error;
+        throw new ApiClientError(`API Error: ${response.status} ${response.statusText}`, response.status);
       }
     }
     if (!text) {
