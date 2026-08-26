@@ -66,6 +66,7 @@ export function TripPreviewDayMap({
   const selected = mappedStops.find(({ stop }) => stop.stopId === selectedStopId);
   const roadSegments = segments.filter((segment) => segment.status === 'road' && segment.route);
   const fallbackCount = segments.filter((segment) => segment.status === 'fallback').length;
+  const totalSegmentCount = segments.length;
   const distance = roadSegments.reduce((sum, segment) => sum + Number(segment.route?.distance || 0), 0);
   const duration = roadSegments.reduce((sum, segment) => sum + Number(segment.route?.duration || 0), 0);
   const routePositions = segments.flatMap((segment) => segment.path.length ? segment.path : segment.fallbackPath);
@@ -74,9 +75,9 @@ export function TripPreviewDayMap({
     : !authenticated && positions.length > 1
       ? 'Đăng nhập để xem tuyến đường bộ.'
       : fallbackCount
-        ? `${roadSegments.length} chặng đường bộ · ${fallbackCount} chặng chưa lấy được tuyến.`
+        ? `Tuyến đường đã tính: ${roadSegments.length}/${totalSegmentCount} chặng · ${fallbackCount} chặng chưa lấy được tuyến.`
         : roadSegments.length
-          ? 'Tuyến đường bộ dự kiến giữa các điểm trong ngày.'
+          ? `Tuyến đường đã tính: ${roadSegments.length}/${totalSegmentCount} chặng.`
           : positions.length > 1
             ? 'Chưa có tuyến đường bộ để hiển thị.'
             : 'Cần ít nhất hai điểm có tọa độ để tính tuyến đường.';
@@ -92,7 +93,7 @@ export function TripPreviewDayMap({
           {loading ? (
             <span className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-800"><Loader2 className="animate-spin" size={13} /> Đang tính tuyến</span>
           ) : roadSegments.length ? (
-            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800"><Route size={13} /> {(distance / 1000).toFixed(1)} km · {Math.max(1, Math.round(duration / 60))} phút</span>
+            <><span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800"><Route size={13} /> {roadSegments.length}/{totalSegmentCount} chặng</span><span className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-800">{(distance / 1000).toFixed(1)} km · {Math.max(1, Math.round(duration / 60))} phút</span></>
           ) : (
             <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600"><AlertCircle size={13} /> Chưa có tuyến đường bộ</span>
           )}
@@ -117,7 +118,7 @@ export function TripPreviewDayMap({
           </MapContainer>
         </div>
       ) : <div className="flex min-h-[260px] items-center justify-center px-5 text-center text-sm leading-6 text-slate-600">Ngày này chưa có điểm dừng có tọa độ hợp lệ để hiển thị trên bản đồ.</div>}
-      {fallbackCount > 0 && <p className="border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">Đường nét đứt là chặng chưa lấy được tuyến đường bộ, không phải đường đi thực tế.</p>}
+      {fallbackCount > 0 && <p className="border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">Đường nét đứt là chặng chưa lấy được tuyến đường bộ, không phải đường đi thực tế. Thời gian di chuyển ước tính chỉ cộng các chặng đã tính thành công.</p>}
     </div>
   );
 }

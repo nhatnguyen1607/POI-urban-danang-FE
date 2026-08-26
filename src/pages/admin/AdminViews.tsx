@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useDeferredValue, useState, type ReactNode } from 'react';
 import {
   Activity,
   Bot,
@@ -7,18 +7,33 @@ import {
   CircleHelp,
   CloudCog,
   Database,
+  Eye,
   FileText,
   KeyRound,
   Map,
   MapPinned,
+  MessageSquare,
   RefreshCw,
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  Star,
   Users,
+  X,
 } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
-import { useAdminUsers, type SafeAdminSnapshot, type ServiceStatus } from './adminData';
+import {
+  useAdminFeedback,
+  useAdminOverview,
+  useAdminPois,
+  useAdminTripDetail,
+  useAdminTrips,
+  useAdminUsers,
+  type AdminPoiRecord,
+  type AdminTripRecord,
+  type SafeAdminSnapshot,
+  type ServiceStatus,
+} from './adminData';
 
 function statusLabel(status: ServiceStatus, language: 'vi' | 'en') {
   const labels = {
@@ -78,6 +93,22 @@ function SectionHeading({ title, description, action }: { title: string; descrip
   );
 }
 
+function DetailDrawer({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="ua-admin-detail" role="dialog" aria-modal="true" aria-label={title}>
+      <button type="button" className="ua-admin-detail__backdrop" onClick={onClose} aria-label="Close" />
+      <aside className="ua-admin-detail__panel">
+        <header><h2>{title}</h2><button type="button" className="ua-admin-icon-button" onClick={onClose} aria-label="Close"><X size={18} /></button></header>
+        <div className="ua-admin-detail__body">{children}</div>
+      </aside>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
+  return <div className="ua-admin-detail-row"><span>{label}</span><strong>{value || '—'}</strong></div>;
+}
+
 function SystemRows({ snapshot }: { snapshot: SafeAdminSnapshot }) {
   const { language } = useLanguage();
   const rows: Array<{ service: string; status: ServiceStatus; message: string }> = [
@@ -100,18 +131,19 @@ function SystemRows({ snapshot }: { snapshot: SafeAdminSnapshot }) {
 
 export function AdminOverview({ snapshot, refresh }: { snapshot: SafeAdminSnapshot; refresh: () => Promise<void> }) {
   const { language } = useLanguage();
-  if (snapshot.loading && !snapshot.checkedAt) return <SkeletonMetrics />;
-  const noSource = language === 'vi' ? 'Chưa có nguồn dữ liệu quản trị' : 'No admin data source';
+  const overview = useAdminOverview();
+  if ((snapshot.loading && !snapshot.checkedAt) || overview.loading) return <SkeletonMetrics />;
+  const realData = language === 'vi' ? 'Dữ liệu quản trị đã xác thực' : 'Verified admin data';
+  const countValue = (value: number | null) => value === null ? '—' : value.toLocaleString('en-US');
   return (
     <div className="ua-admin-stack" data-admin-view="overview">
       <div className="ua-admin-metric-grid">
-        <MetricCard icon={<Database size={19} />} label="Canonical POIs" value={snapshot.canonicalPois?.toLocaleString('en-US') || '—'} helper={snapshot.canonicalPois ? (language === 'vi' ? 'Nguồn: báo cáo chất lượng runtime' : 'Source: runtime quality report') : noSource} />
-        <MetricCard icon={<MapPinned size={19} />} label={language === 'vi' ? 'Lịch trình' : 'Trips'} value="—" helper={noSource} />
-        <MetricCard icon={<Users size={19} />} label={language === 'vi' ? 'Người dùng' : 'Users'} value="—" helper={noSource} />
-        <MetricCard icon={<Search size={19} />} label={language === 'vi' ? 'Tìm kiếm' : 'Searches'} value="—" helper={noSource} />
-        <MetricCard icon={<Bot size={19} />} label={language === 'vi' ? 'Gợi ý' : 'Recommendations'} value="—" helper={noSource} />
-        <MetricCard icon={<FileText size={19} />} label="Feedback" value="—" helper={noSource} />
+        <MetricCard icon={<Database size={19} />} label="Canonical POIs" value={countValue(snapshot.canonicalPois)} helper={language === 'vi' ? 'Nguồn: runtime canonical hiện tại' : 'Source: current canonical runtime'} />
+        <MetricCard icon={<MapPinned size={19} />} label={language === 'vi' ? 'Lịch trình đã lưu' : 'Saved trips'} value={countValue(overview.data.counts.trips.value)} helper={overview.data.counts.trips.exact ? realData : `${realData} · limited`} />
+        <MetricCard icon={<Users size={19} />} label={language === 'vi' ? 'Người dùng' : 'Users'} value={countValue(overview.data.counts.users.value)} helper={overview.data.counts.users.exact ? realData : realData + ' · limited'} />
+        <MetricCard icon={<MessageSquare size={19} />} label="Feedback" value={countValue(overview.data.counts.feedback.value)} helper={overview.data.counts.feedback.exact ? realData : realData + ' · limited'} />
       </div>
+      {overview.error && <UnavailableState title={language === 'vi' ? 'Một số chỉ số chưa tải được' : 'Some metrics are unavailable'} description={overview.error} />}
       <section>
         <SectionHeading
           title={language === 'vi' ? 'Trạng thái hệ thống' : 'System status'}
@@ -122,7 +154,21 @@ export function AdminOverview({ snapshot, refresh }: { snapshot: SafeAdminSnapsh
       </section>
       <section>
         <SectionHeading title={language === 'vi' ? 'Hoạt động gần đây' : 'Recent activity'} />
-        <UnavailableState title={language === 'vi' ? 'Chưa có nguồn dữ liệu hoạt động' : 'No activity data source'} description={language === 'vi' ? 'Cần Admin Activity API có phân quyền phía máy chủ.' : 'A server-authorized Admin Activity API is required.'} />
+        {overview.data.recentActivity.length ? (
+          <div className="ua-admin-table-wrap">
+            <table className="ua-admin-table">
+              <thead><tr><th>{language === 'vi' ? 'Loại' : 'Type'}</th><th>{language === 'vi' ? 'Hoạt động' : 'Activity'}</th><th>{language === 'vi' ? 'Người dùng' : 'User'}</th><th>{language === 'vi' ? 'Thời gian' : 'Time'}</th></tr></thead>
+              <tbody>{overview.data.recentActivity.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.type === 'trip' ? (language === 'vi' ? 'Lịch trình' : 'Trip') : 'Feedback'}</td>
+                  <td><strong>{item.label}</strong></td>
+                  <td>{item.ownerId || '—'}</td>
+                  <td>{item.occurredAt ? new Date(item.occurredAt).toLocaleString(language === 'vi' ? 'vi-VN' : 'en-US') : '—'}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        ) : <UnavailableState title={language === 'vi' ? 'Chưa có hoạt động' : 'No recent activity'} description={language === 'vi' ? 'Trip và feedback mới sẽ xuất hiện tại đây.' : 'New trips and feedback will appear here.'} />}
       </section>
     </div>
   );
@@ -182,29 +228,66 @@ export function AdminUsers() {
 
 export function AdminPoi({ snapshot }: { snapshot: SafeAdminSnapshot }) {
   const { language } = useLanguage();
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('');
+  const [source, setSource] = useState('');
+  const [selectedPoi, setSelectedPoi] = useState<AdminPoiRecord | null>(null);
+  const deferredQuery = useDeferredValue(query);
+  const result = useAdminPois({ query: deferredQuery, category, source });
   return (
     <div className="ua-admin-stack" data-admin-view="poi">
       <div className="ua-admin-metric-grid ua-admin-metric-grid--compact">
         <MetricCard icon={<Database size={19} />} label="Canonical POIs" value={snapshot.canonicalPois?.toLocaleString('en-US') || '—'} helper={language === 'vi' ? 'Runtime Da Nang hiện tại' : 'Current Da Nang runtime'} />
         <MetricCard icon={<ShieldCheck size={19} />} label={language === 'vi' ? 'Schema canonical' : 'Canonical schema'} value={snapshot.canonicalHeaderValid === null ? '—' : snapshot.canonicalHeaderValid ? 'PASS' : 'FAIL'} helper={language === 'vi' ? 'Nguồn: Admin POI Summary' : 'Source: Admin POI Summary'} />
       </div>
-      <div className="ua-admin-filterbar" aria-disabled="true">
-        <span><Search size={15} />{language === 'vi' ? 'Tìm POI' : 'Search POIs'}</span>
-        <span><SlidersHorizontal size={15} />{language === 'vi' ? 'Danh mục / nguồn / trạng thái' : 'Category / source / status'}</span>
+      <div className="ua-admin-filterbar">
+        <label><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={language === 'vi' ? 'Tìm tên, địa chỉ hoặc mã POI' : 'Search name, address, or POI ID'} /></label>
+        <label><SlidersHorizontal size={15} /><select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">{language === 'vi' ? 'Mọi danh mục' : 'All categories'}</option>{result.data.filters.categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+        <label><Database size={15} /><select value={source} onChange={(event) => setSource(event.target.value)}><option value="">{language === 'vi' ? 'Mọi nguồn' : 'All sources'}</option>{result.data.filters.sources.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       </div>
-      <UnavailableState icon={<MapPinned size={22} />} title={language === 'vi' ? 'Quản lý POI đang ở chế độ chỉ đọc' : 'POI administration is read-only'} description={language === 'vi' ? 'Backend chỉ cung cấp tổng hợp canonical an toàn; sửa, xóa và đồng bộ chưa được hỗ trợ.' : 'The backend exposes only a safe canonical summary; edit, delete, and sync are unsupported.'} />
+      {result.loading ? <div className="ua-admin-skeleton ua-admin-skeleton--table" role="status" /> : result.error ? <UnavailableState title={language === 'vi' ? 'Không thể tải POI' : 'POIs unavailable'} description={result.error} /> : result.data.pois.length ? (
+        <div className="ua-admin-table-wrap"><table className="ua-admin-table"><thead><tr><th>{language === 'vi' ? 'Địa điểm' : 'Place'}</th><th>{language === 'vi' ? 'Danh mục' : 'Category'}</th><th>{language === 'vi' ? 'Nguồn' : 'Source'}</th><th>{language === 'vi' ? 'Đánh giá' : 'Rating'}</th><th>{language === 'vi' ? 'Chi tiết' : 'Details'}</th></tr></thead><tbody>{result.data.pois.map((poi) => <tr key={poi.poiId}><td><strong>{poi.name}</strong><span className="ua-admin-table__secondary">{poi.address || poi.poiId}</span></td><td>{poi.category}</td><td>{poi.source || '—'}</td><td>{poi.rating === null ? '—' : `${poi.rating.toFixed(1)} · ${poi.reviewCount ?? '—'}`}</td><td><button type="button" className="ua-admin-icon-button" onClick={() => setSelectedPoi(poi)} title={language === 'vi' ? 'Xem chi tiết' : 'View details'}><Eye size={16} /></button></td></tr>)}</tbody></table></div>
+      ) : <UnavailableState title={language === 'vi' ? 'Không tìm thấy POI' : 'No POIs found'} description={language === 'vi' ? 'Hãy thử từ khóa hoặc bộ lọc khác.' : 'Try another keyword or filter.'} />}
+      <p className="ua-admin-source-note">{language === 'vi' ? `Hiển thị ${result.data.pois.length}/${result.data.total} POI · Chế độ chỉ đọc.` : `Showing ${result.data.pois.length}/${result.data.total} POIs · Read-only.`}</p>
+      {selectedPoi && <DetailDrawer title={selectedPoi.name} onClose={() => setSelectedPoi(null)}><DetailRow label="POI ID" value={selectedPoi.poiId} /><DetailRow label={language === 'vi' ? 'Danh mục' : 'Category'} value={selectedPoi.category} /><DetailRow label={language === 'vi' ? 'Địa chỉ' : 'Address'} value={selectedPoi.address} /><DetailRow label={language === 'vi' ? 'Khu vực' : 'District'} value={selectedPoi.district} /><DetailRow label={language === 'vi' ? 'Nguồn' : 'Source'} value={selectedPoi.source} /><DetailRow label={language === 'vi' ? 'Tọa độ' : 'Coordinates'} value={selectedPoi.location ? `${selectedPoi.location.lat}, ${selectedPoi.location.lng}` : null} /><DetailRow label={language === 'vi' ? 'Đánh giá' : 'Rating'} value={selectedPoi.rating === null ? null : `${selectedPoi.rating} (${selectedPoi.reviewCount ?? '—'})`} /></DetailDrawer>}
     </div>
   );
 }
 
 export function AdminTrips() {
   const { language } = useLanguage();
-  return <UnavailableState icon={<MapPinned size={22} />} title={language === 'vi' ? 'Chưa có nguồn danh sách lịch trình toàn cục' : 'No global trip-list source'} description={language === 'vi' ? 'Saved Trip API hiện chỉ cho chủ sở hữu. Cần Admin Trips API riêng để xem toàn cục.' : 'The Saved Trip API is owner-only. A dedicated Admin Trips API is required for global inspection.'} />;
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  const result = useAdminTrips();
+  const detail = useAdminTripDetail(selectedTripId);
+  if (result.loading) return <div className="ua-admin-skeleton ua-admin-skeleton--table" role="status" />;
+  if (result.error) return <UnavailableState icon={<MapPinned size={22} />} title={language === 'vi' ? 'Không thể tải lịch trình' : 'Trips unavailable'} description={result.error} />;
+  if (!result.data.trips.length) return <UnavailableState icon={<MapPinned size={22} />} title={language === 'vi' ? 'Chưa có lịch trình đã lưu' : 'No saved trips'} description={language === 'vi' ? 'Lịch trình đã lưu của người dùng sẽ xuất hiện tại đây.' : 'Traveler saved trips will appear here.'} />;
+  return (
+    <div className="ua-admin-stack" data-admin-view="trips">
+      <div className="ua-admin-table-wrap"><table className="ua-admin-table"><thead><tr><th>{language === 'vi' ? 'Lịch trình' : 'Trip'}</th><th>{language === 'vi' ? 'Người dùng' : 'User'}</th><th>{language === 'vi' ? 'Ngày / điểm' : 'Days / stops'}</th><th>{language === 'vi' ? 'Trạng thái' : 'Status'}</th><th>{language === 'vi' ? 'Cập nhật' : 'Updated'}</th><th>{language === 'vi' ? 'Chi tiết' : 'Details'}</th></tr></thead><tbody>{result.data.trips.map((trip) => <tr key={trip.tripId}><td><strong>{trip.title}</strong><span className="ua-admin-table__secondary">{trip.startDate || trip.tripId}</span></td><td>{trip.ownerId || '—'}</td><td>{trip.dayCount} / {trip.stopCount}</td><td><StatusBadge status={trip.needsReplan ? 'waiting' : 'active'} /></td><td>{trip.updatedAt ? new Date(trip.updatedAt).toLocaleString(language === 'vi' ? 'vi-VN' : 'en-US') : '—'}</td><td><button type="button" className="ua-admin-icon-button" onClick={() => setSelectedTripId(trip.tripId)} title={language === 'vi' ? 'Xem chi tiết' : 'View details'}><Eye size={16} /></button></td></tr>)}</tbody></table></div>
+      {selectedTripId && <DetailDrawer title={language === 'vi' ? 'Chi tiết lịch trình' : 'Trip details'} onClose={() => setSelectedTripId(null)}>{detail.loading ? <div className="ua-admin-skeleton ua-admin-skeleton--table" /> : detail.error || !detail.data.trip ? <UnavailableState title={language === 'vi' ? 'Không thể tải chi tiết' : 'Details unavailable'} description={detail.error || 'Trip not found'} /> : <TripDetail trip={detail.data.trip} language={language} />}</DetailDrawer>}
+    </div>
+  );
+}
+
+function TripDetail({ trip, language }: { trip: AdminTripRecord; language: 'vi' | 'en' }) {
+  return <><DetailRow label="Trip ID" value={trip.tripId} /><DetailRow label={language === 'vi' ? 'Chủ sở hữu' : 'Owner'} value={trip.ownerId} /><DetailRow label={language === 'vi' ? 'Ngày bắt đầu' : 'Start date'} value={trip.startDate} /><DetailRow label={language === 'vi' ? 'Số ngày' : 'Days'} value={trip.dayCount} /><DetailRow label={language === 'vi' ? 'Phương tiện' : 'Transport'} value={trip.transport} /><h3 className="ua-admin-detail__subheading">{language === 'vi' ? 'Điểm dừng' : 'Stops'}</h3>{trip.stops?.length ? <ol className="ua-admin-stop-list">{trip.stops.map((stop) => <li key={stop.stopId || `${stop.dayNumber}-${stop.order}`}><span>{stop.dayNumber}.{stop.order}</span><div><strong>{stop.poi.name}</strong><small>{stop.arrivalTime || '—'} - {stop.departureTime || '—'} · {stop.poi.category}</small></div></li>)}</ol> : <p className="ua-admin-source-note">{language === 'vi' ? 'Không có điểm dừng.' : 'No stops.'}</p>}</>;
 }
 
 export function AdminAnalytics() {
   const { language } = useLanguage();
   return <UnavailableState icon={<Activity size={22} />} title={language === 'vi' ? 'Chưa có nguồn analytics quản trị' : 'No admin analytics source'} description={language === 'vi' ? 'Không dựng biểu đồ giả cho lượt tìm kiếm, tạo chuyến đi, quan tâm danh mục hay feedback.' : 'No fabricated charts are rendered for searches, trip generation, category interest, or feedback.'} />;
+}
+
+export function AdminFeedback() {
+  const { language } = useLanguage();
+  const result = useAdminFeedback();
+  if (result.loading) return <div className="ua-admin-skeleton ua-admin-skeleton--table" role="status" />;
+  if (result.error) return <UnavailableState icon={<MessageSquare size={22} />} title={language === 'vi' ? 'Không thể tải feedback' : 'Feedback unavailable'} description={result.error} />;
+  if (!result.data.feedback.length) return <UnavailableState icon={<MessageSquare size={22} />} title={language === 'vi' ? 'Chưa có feedback' : 'No feedback yet'} description={language === 'vi' ? 'Đánh giá và tín hiệu hành trình sẽ xuất hiện tại đây.' : 'Ratings and trip signals will appear here.'} />;
+  return (
+    <div className="ua-admin-table-wrap" data-admin-view="feedback"><table className="ua-admin-table"><thead><tr><th>{language === 'vi' ? 'Tín hiệu' : 'Signal'}</th><th>{language === 'vi' ? 'Người dùng' : 'User'}</th><th>{language === 'vi' ? 'Đánh giá' : 'Rating'}</th><th>{language === 'vi' ? 'Nội dung' : 'Message'}</th><th>POI / Trip</th><th>{language === 'vi' ? 'Thời gian' : 'Time'}</th></tr></thead><tbody>{result.data.feedback.map((item) => <tr key={item.eventId}><td><strong>{item.eventType}</strong></td><td>{item.userId || '—'}</td><td>{item.rating === null ? '—' : <span className="ua-admin-rating"><Star size={13} fill="currentColor" />{item.rating}</span>}</td><td>{item.message || '—'}</td><td>{item.poiId || item.itineraryId || '—'}</td><td>{item.createdAt ? new Date(item.createdAt).toLocaleString(language === 'vi' ? 'vi-VN' : 'en-US') : '—'}</td></tr>)}</tbody></table></div>
+  );
 }
 
 export function AdminAgent() {

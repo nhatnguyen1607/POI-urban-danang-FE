@@ -51,6 +51,74 @@ export interface SafeAdminUser {
   admin: boolean;
 }
 
+export interface AdminCount {
+  value: number | null;
+  exact: boolean;
+}
+
+export interface AdminActivity {
+  id: string;
+  type: 'trip' | 'feedback';
+  label: string;
+  ownerId: string | null;
+  occurredAt: string | null;
+}
+
+export interface AdminOverviewData {
+  counts: { users: AdminCount; trips: AdminCount; feedback: AdminCount };
+  recentActivity: AdminActivity[];
+}
+
+export interface AdminPoiRecord {
+  poiId: string;
+  name: string;
+  category: string;
+  address: string | null;
+  district: string | null;
+  source: string | null;
+  rating: number | null;
+  reviewCount: number | null;
+  imageUrl: string | null;
+  location: { lat: number; lng: number } | null;
+  coordinateStatus: string | null;
+}
+
+export interface AdminTripStop {
+  stopId: string | null;
+  dayNumber: number;
+  order: number;
+  arrivalTime: string | null;
+  departureTime: string | null;
+  poi: { poiId: string | null; name: string; category: string };
+}
+
+export interface AdminTripRecord {
+  tripId: string;
+  ownerId: string | null;
+  title: string;
+  cityId: string;
+  startDate: string | null;
+  dayCount: number;
+  stopCount: number;
+  status: string;
+  needsReplan: boolean;
+  transport: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  stops?: AdminTripStop[];
+}
+
+export interface AdminFeedbackRecord {
+  eventId: string;
+  userId: string | null;
+  eventType: string;
+  rating: number | null;
+  message: string | null;
+  poiId: string | null;
+  itineraryId: string | null;
+  createdAt: string | null;
+}
+
 const initialSnapshot: SafeAdminSnapshot = {
   loading: true,
   error: null,
@@ -190,4 +258,82 @@ export function useAdminUsers() {
       setRefreshKey((value) => value + 1);
     },
   };
+}
+
+function useAdminRequest<T>(endpoint: string | null, initialValue: T) {
+  const [data, setData] = useState<T>(initialValue);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (!endpoint) return undefined;
+    const controller = new AbortController();
+    const requestTimer = window.setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      void apiClient.get(endpoint, { signal: controller.signal })
+        .then((response) => setData(response as T))
+        .catch((reason) => {
+          if (controller.signal.aborted) return;
+          setError(reason instanceof Error ? reason.message : 'Admin data unavailable');
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    }, 0);
+    return () => {
+      window.clearTimeout(requestTimer);
+      controller.abort();
+    };
+  }, [endpoint, refreshKey]);
+
+  return {
+    data,
+    loading: endpoint ? loading : false,
+    error: endpoint ? error : null,
+    retry: () => setRefreshKey((value) => value + 1),
+  };
+}
+
+const emptyOverview: AdminOverviewData = {
+  counts: {
+    users: { value: null, exact: false },
+    trips: { value: null, exact: false },
+    feedback: { value: null, exact: false },
+  },
+  recentActivity: [],
+};
+
+export function useAdminOverview() {
+  return useAdminRequest<AdminOverviewData>('/api/admin/overview', emptyOverview);
+}
+
+export function useAdminPois({ query = '', category = '', source = '' } = {}) {
+  const params = new URLSearchParams({ limit: '60' });
+  if (query.trim()) params.set('query', query.trim());
+  if (category) params.set('category', category);
+  if (source) params.set('source', source);
+  return useAdminRequest<{
+    pois: AdminPoiRecord[];
+    total: number;
+    filters: { categories: string[]; sources: string[] };
+  }>(`/api/admin/pois?${params.toString()}`, {
+    pois: [],
+    total: 0,
+    filters: { categories: [], sources: [] },
+  });
+}
+
+export function useAdminTrips() {
+  return useAdminRequest<{ trips: AdminTripRecord[] }>('/api/admin/trips?limit=60', { trips: [] });
+}
+
+export function useAdminTripDetail(tripId: string | null) {
+  const endpoint = tripId ? `/api/admin/trips/${encodeURIComponent(tripId)}` : null;
+  return useAdminRequest<{ trip: AdminTripRecord | null }>(endpoint, { trip: null });
+}
+
+export function useAdminFeedback() {
+  return useAdminRequest<{ feedback: AdminFeedbackRecord[] }>('/api/admin/feedback?limit=60', { feedback: [] });
 }

@@ -10,6 +10,7 @@ import {
   LogOut,
   MapPinned,
   Menu,
+  MessageSquare,
   PlugZap,
   Search,
   Settings,
@@ -41,6 +42,7 @@ const navGroups: Array<{ label: Record<Language, string>; items: AdminNavItem[] 
     items: [
       { label: { vi: 'POI & Dữ liệu', en: 'POI & Data' }, path: '/admin/poi', icon: Database },
       { label: { vi: 'Lịch trình', en: 'Trips' }, path: '/admin/trips', icon: MapPinned },
+      { label: { vi: 'Phản hồi', en: 'Feedback' }, path: '/admin/feedback', icon: MessageSquare },
       { label: { vi: 'Phân tích', en: 'Analytics' }, path: '/admin/analytics', icon: BarChart3 },
       { label: { vi: 'AI & Agent', en: 'AI & Agent' }, path: '/admin/agent', icon: Bot },
     ],

@@ -5,6 +5,7 @@ import { AdminShell } from './AdminShell';
 import {
   AdminAgent,
   AdminAnalytics,
+  AdminFeedback,
   AdminIntegrations,
   AdminLogs,
   AdminOverview,
@@ -35,7 +36,7 @@ export default function AdminApp() {
   const { pathname } = useLocation();
   const redirects: Record<string, string> = {
     '/admin/pois': '/admin/poi',
-    '/admin/reviews': '/admin/logs',
+    '/admin/reviews': '/admin/feedback',
     '/admin/model-metrics': '/admin/analytics',
     '/admin/tsne-cluster': '/admin/analytics',
   };
@@ -47,6 +48,7 @@ export default function AdminApp() {
     '/admin/poi': <AdminPage title={{ vi: 'POI & Dữ liệu', en: 'POI & Data' }} description={{ vi: 'Theo dõi canonical POI, candidate, temporary places và data sync.', en: 'Monitor canonical POIs, candidates, temporary places, and data sync.' }}><AdminPoi snapshot={snapshot} /></AdminPage>,
     '/admin/trips': <AdminPage title={{ vi: 'Lịch trình', en: 'Trips' }} description={{ vi: 'Theo dõi trip, saved trip và trạng thái lộ trình.', en: 'Inspect trips, saved trips, and route status.' }}><AdminTrips /></AdminPage>,
     '/admin/analytics': <AdminPage title={{ vi: 'Phân tích', en: 'Analytics' }} description={{ vi: 'Search, recommendation, feedback và usage từ nguồn đo tin cậy.', en: 'Search, recommendation, feedback, and usage from trusted telemetry.' }}><AdminAnalytics /></AdminPage>,
+    '/admin/feedback': <AdminPage title={{ vi: 'Phản hồi', en: 'Feedback' }} description={{ vi: 'Theo dõi đánh giá và tín hiệu hành trình đã ghi nhận.', en: 'Review recorded ratings and trip signals.' }}><AdminFeedback /></AdminPage>,
     '/admin/agent': <AdminPage title={{ vi: 'AI & Agent', en: 'AI & Agent' }} description={{ vi: 'Hoạt động Agent, scheduler và generation failures.', en: 'Agent activity, scheduler, and generation failures.' }}><AdminAgent /></AdminPage>,
     '/admin/integrations': <AdminPage title={{ vi: 'Tích hợp', en: 'Integrations' }} description={{ vi: 'Trạng thái kết nối mà không phơi bày credential.', en: 'Connection status without exposing credentials.' }}><AdminIntegrations snapshot={snapshot} /></AdminPage>,
     '/admin/system': <AdminPage title={{ vi: 'Sức khỏe hệ thống', en: 'System health' }} description={{ vi: 'Kiểm tra các dịch vụ qua health contract an toàn hiện có.', en: 'Check services through existing safe health contracts.' }}><AdminSystem snapshot={snapshot} refresh={refresh} /></AdminPage>,

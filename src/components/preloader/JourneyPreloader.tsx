@@ -48,6 +48,21 @@ const copy: Record<Language, Record<JourneyPreloaderMode, { lead: string; highli
   },
 };
 
+const progressMessages: Record<Language, string[]> = {
+  vi: [
+    'Đang chuẩn bị hành trình...',
+    'Đang tìm những địa điểm phù hợp...',
+    'Đang sắp xếp tuyến đường...',
+    'Sắp xong rồi...',
+  ],
+  en: [
+    'Preparing your journey...',
+    'Finding places that fit...',
+    'Arranging your route...',
+    'Almost there...',
+  ],
+};
+
 function useReducedMotion() {
   const [reduced, setReduced] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
 
@@ -75,7 +90,21 @@ export function JourneyPreloader({
   const reducedMotion = useReducedMotion();
   const [videoReady, setVideoReady] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
+  const [messageIndex, setMessageIndex] = useState(0);
   const text = copy[language][mode];
+  const rotatingStatus = progressMessages[language][messageIndex];
+
+  useEffect(() => {
+    if (!open || statusText) return undefined;
+    const resetTimer = window.setTimeout(() => setMessageIndex(0), 0);
+    const timer = window.setInterval(() => {
+      setMessageIndex((current) => Math.min(current + 1, progressMessages[language].length - 1));
+    }, 1800);
+    return () => {
+      window.clearTimeout(resetTimer);
+      window.clearInterval(timer);
+    };
+  }, [language, mode, open, statusText]);
 
   return (
     <div
@@ -84,7 +113,7 @@ export function JourneyPreloader({
       data-video-state={videoFailed ? 'fallback' : videoReady ? 'ready' : 'loading'}
       role="status"
       aria-live="polite"
-      aria-label={statusText || text.announcement}
+      aria-label={statusText || rotatingStatus || text.announcement}
     >
       <div className="ua-journey-preloader__brand" aria-hidden="true">
         <BrandMark showTagline={false} />
@@ -114,15 +143,7 @@ export function JourneyPreloader({
       </div>
 
       <div className="ua-journey-preloader__status">
-        {statusText ? (
-          <p>{statusText}</p>
-        ) : (
-          <p>
-            <span>{text.lead}</span>
-            <strong>{text.highlight}</strong>{' '}
-            <span>{text.tail}</span>
-          </p>
-        )}
+        <p>{statusText || rotatingStatus}</p>
         <span className="ua-journey-preloader__dots" aria-hidden="true">
           <i />
           <i />

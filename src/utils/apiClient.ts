@@ -30,14 +30,31 @@ export class ApiClientError extends Error {
   }
 }
 
-const fetchWithNetworkMessage = async (input: RequestInfo | URL, init?: RequestInit) => {
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+
+const fetchWithNetworkMessage = async (input: RequestInfo | URL, init: RequestInit = {}) => {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort(init.signal?.reason);
+  if (init.signal?.aborted) abortFromCaller();
+  else init.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, DEFAULT_REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(input, init);
+    return await fetch(input, { ...init, signal: controller.signal });
   } catch (error) {
+    if (timedOut) {
+      throw new Error('Máy chủ phản hồi quá lâu. Vui lòng thử lại.');
+    }
     if (error instanceof TypeError) {
       throw new Error('Không thể kết nối đến máy chủ. Vui lòng thử lại.');
     }
     throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    init.signal?.removeEventListener('abort', abortFromCaller);
   }
 };
 
