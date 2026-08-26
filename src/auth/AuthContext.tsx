@@ -14,11 +14,11 @@ import {
 } from 'firebase/auth';
 import { auth, firebaseReady } from '../services/firebase';
 import { apiClient } from '../utils/apiClient';
+import { demoAuthMode } from '../config/runtimeFlags';
 import { AuthContext, type AppRole, type AuthContextValue } from './authContextValue';
 
 const roleKey = (uid: string) => `danang-urban-agent-role:${uid}`;
 const demoSessionKey = 'danang-urban-agent-demo-session';
-const demoAuthMode = import.meta.env.VITE_DEMO_AUTH_MODE === 'true';
 
 function createDemoUser() {
   return {

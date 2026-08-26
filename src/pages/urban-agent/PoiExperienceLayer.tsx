@@ -4,6 +4,7 @@ import { AlertTriangle, Camera, Car, CheckCircle2, Clock, LocateFixed, Loader2, 
 import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { apiClient } from '../../utils/apiClient';
+import { validatePlaceSearchQuery } from '../../utils/searchQueryValidation';
 import {
   createPoiReview,
   autocompleteDestinations,
@@ -202,6 +203,7 @@ const uiCopy = {
     addressResult: 'Địa chỉ',
     searchEmpty: 'Không tìm thấy địa chỉ phù hợp.',
     searchFailed: 'Chưa thể tìm địa điểm. Vui lòng thử lại.',
+    invalidSearch: 'Vui lòng nhập tên địa điểm hoặc địa chỉ hợp lệ.',
     enableLocationNear: 'Bật vị trí để tìm địa điểm gần bạn',
     exactAddress: 'Địa chỉ đã xác định',
     approximateAddress: 'Chưa xác định chính xác số nhà',
@@ -294,6 +296,7 @@ const uiCopy = {
     addressResult: 'Address',
     searchEmpty: 'No matching address found.',
     searchFailed: 'Could not search places. Please try again.',
+    invalidSearch: 'Enter a valid place name or address.',
     enableLocationNear: 'Enable location to find places near you',
     exactAddress: 'Address confirmed',
     approximateAddress: 'House number not precisely confirmed',
@@ -745,15 +748,26 @@ export function PoiExperienceLayer({
 
   useEffect(() => {
     const handle = window.setTimeout(async () => {
-      const normalized = normalizeSearchText(searchText);
-      if (normalized.length < 2) {
+      const validation = validatePlaceSearchQuery(searchText);
+      if (!validation.query) {
         searchRequestIdRef.current += 1;
         setSearchResults([]);
         setSearchMeta({});
         setSearchError('');
         setSearchRequested(false);
+        setSearching(false);
         return;
       }
+      if (!validation.valid) {
+        searchRequestIdRef.current += 1;
+        setSearchResults([]);
+        setSearchMeta({});
+        setSearchError(ui.invalidSearch);
+        setSearchRequested(true);
+        setSearching(false);
+        return;
+      }
+      const normalized = normalizeSearchText(searchText);
       if (!showSearch) return;
       if (isNearMeSearch(searchText) && searchOrigin?.source !== 'live_gps') {
         searchRequestIdRef.current += 1;
@@ -825,10 +839,10 @@ export function PoiExperienceLayer({
       }
     }, 450);
     return () => window.clearTimeout(handle);
-  }, [allPois, firebaseReady, searchOrigin, searchText, showSearch, ui.enableLocationNear, ui.searchFailed, user]);
+  }, [allPois, firebaseReady, searchOrigin, searchText, showSearch, ui.enableLocationNear, ui.invalidSearch, ui.searchFailed, user]);
 
   useEffect(() => {
-    if (!googleDiscoveryMapConfigured || !showSearch || normalizeSearchText(searchText).length < 3) {
+    if (!googleDiscoveryMapConfigured || !showSearch || !validatePlaceSearchQuery(searchText).valid) {
       setAutocompleteSuggestions([]);
       setAutocompleteLoading(false);
       return undefined;

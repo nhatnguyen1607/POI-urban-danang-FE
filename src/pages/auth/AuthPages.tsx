@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import type { AppRole } from '../../auth/authContextValue';
+import { demoAuthMode } from '../../config/runtimeFlags';
 
 const roleDestinations: Record<AppRole, string> = {
   customer: '/urban-agent',
@@ -40,8 +41,6 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState('');
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
-  const demoAuthMode = import.meta.env.VITE_DEMO_AUTH_MODE === 'true';
-
   if (loading) return <AuthLoading />;
   if (user && role) return <Navigate to={from || roleDestinations[role]} replace />;
   if (user && !role) return <Navigate to="/chon-vai-tro" replace />;
