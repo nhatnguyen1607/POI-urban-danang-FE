@@ -18,14 +18,43 @@ const getApiUrl = () => {
 
 export const getApiBaseUrl = getApiUrl;
 
-const fetchWithNetworkMessage = async (input: RequestInfo | URL, init?: RequestInit) => {
+export class ApiClientError extends Error {
+  status: number;
+  code: string | null;
+
+  constructor(message: string, status: number, code: string | null = null) {
+    super(message);
+    this.name = 'ApiClientError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+
+const fetchWithNetworkMessage = async (input: RequestInfo | URL, init: RequestInit = {}) => {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort(init.signal?.reason);
+  if (init.signal?.aborted) abortFromCaller();
+  else init.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, DEFAULT_REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(input, init);
+    return await fetch(input, { ...init, signal: controller.signal });
   } catch (error) {
+    if (timedOut) {
+      throw new Error('Máy chủ phản hồi quá lâu. Vui lòng thử lại.');
+    }
     if (error instanceof TypeError) {
       throw new Error('Không thể kết nối đến máy chủ. Vui lòng thử lại.');
     }
     throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    init.signal?.removeEventListener('abort', abortFromCaller);
   }
 };
 
@@ -37,13 +66,11 @@ const mergeHeaders = async (...headersList: Array<HeadersInit | undefined>) => {
   });
 
   const token = await getFirebaseIdToken();
-  const localAdminToken = localStorage.getItem('danang-local-admin-token');
   const demoToken = demoAuthMode && sessionStorage.getItem(demoSessionKey) === 'true'
     ? 'urbanagent-demo-local-token'
     : null;
   if (token) merged.set('Authorization', `Bearer ${token}`);
-  if (!token && localAdminToken) merged.set('Authorization', `Bearer ${localAdminToken}`);
-  if (!token && !localAdminToken && demoToken) merged.set('Authorization', `Bearer ${demoToken}`);
+  if (!token && demoToken) merged.set('Authorization', `Bearer ${demoToken}`);
 
   return Object.fromEntries(merged.entries());
 };
@@ -60,10 +87,15 @@ export const apiClient = {
     if (!response.ok) {
       try {
         const payload = text ? JSON.parse(text) : null;
-        throw new Error(payload?.error?.message || payload?.details || payload?.error || `API Error: ${response.status} ${response.statusText}`);
+        const code = typeof payload?.error === 'string' ? payload.error : payload?.error?.code || null;
+        throw new ApiClientError(
+          payload?.error?.message || payload?.details || code || `API Error: ${response.status} ${response.statusText}`,
+          response.status,
+          code,
+        );
       } catch (error) {
-        if (error instanceof Error && !error.message.startsWith('Unexpected token')) throw error;
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+        if (error instanceof ApiClientError) throw error;
+        throw new ApiClientError(`API Error: ${response.status} ${response.statusText}`, response.status);
       }
     }
     if (!text) {

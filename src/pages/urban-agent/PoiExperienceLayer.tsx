@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { AlertTriangle, Camera, Car, CheckCircle2, Clock, LocateFixed, Loader2, MapPin, MousePointer2, Navigation, Plus, Route, Search, ShieldCheck, Star, X } from 'lucide-react';
 import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet';
@@ -6,18 +6,24 @@ import L from 'leaflet';
 import { apiClient } from '../../utils/apiClient';
 import {
   createPoiReview,
+  autocompleteDestinations,
   getAutoContext,
+  googleDiscoveryMapConfigured,
   incrementPoiCounter,
   inferTransport,
   normalizeSearchText,
   rankPoisForSearch,
   recordSearchLog,
   recordUserAnalyticsEvent,
+  resolveAutocompleteDestination,
   searchGeocodedDestinations,
   searchPoisByKeyword,
   subscribePoiReviews,
   type PoiReview,
+  type DestinationSearchMeta,
+  type GoogleAutocompleteSuggestion,
   type SearchDestination,
+  type SearchOriginInput,
   type SearchablePoi,
   type VisitMood,
   type VisitPurpose,
@@ -30,6 +36,8 @@ import {
   routeCoordinates,
   type TravelerRouteResult,
 } from './travelerCapabilities';
+import { GoogleDiscoveryMap } from './GoogleDiscoveryMap';
+import { routeCasingOptions, routeLineOptions } from './routeVisuals';
 
 const GEOFENCE_RADIUS_M = 45;
 const REVIEW_SKIP_PREFIX = 'danang-poi-review-skip';
@@ -103,6 +111,68 @@ function createTemporaryPinId() {
   return `temporary:pin:${nonce}`;
 }
 
+function createAutocompleteSessionToken() {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function isNearMeSearch(value: string) {
+  const normalized = normalizeSearchText(value);
+  return /(?:^| )(?:gan toi|gan day|quanh day|near me)(?: |$)/.test(normalized);
+}
+
+function dedupeSearchDestinations(destinations: SearchDestination[]) {
+  const kept: SearchDestination[] = [];
+  destinations.forEach((candidate) => {
+    const normalizedName = normalizeSearchText(candidate.label);
+    const duplicateIndex = kept.findIndex((existing) => (
+      existing.id === candidate.id
+      || Boolean(
+        normalizedName
+        && normalizeSearchText(existing.label) === normalizedName
+        && haversineMeters(existing, candidate) <= 80,
+      )
+    ));
+    if (duplicateIndex < 0) {
+      kept.push(candidate);
+      return;
+    }
+    const existing = kept[duplicateIndex];
+    const providers = Array.from(new Set([
+      ...(existing.providerSources || [existing.source]),
+      ...(candidate.providerSources || [candidate.source]),
+    ]));
+    if (candidate.source === 'urbanagent' && existing.source !== 'urbanagent') {
+      kept[duplicateIndex] = { ...candidate, providerSources: providers };
+    } else {
+      kept[duplicateIndex] = { ...existing, providerSources: providers };
+    }
+  });
+  return kept;
+}
+
+function rankLocalDestinations(query: string, destinations: SearchDestination[], origin: { lat: number; lon: number }) {
+  const tokens = normalizeSearchText(query).split(' ').filter((token) => token.length > 1);
+  const score = (destination: SearchDestination) => {
+    const haystack = normalizeSearchText(`${destination.label} ${destination.category || ''}`);
+    return tokens.reduce((total, token) => total + (haystack.includes(token) ? 1 : 0), 0);
+  };
+  return destinations
+    .filter((destination) => destination.businessStatus !== 'CLOSED_PERMANENTLY')
+    .map((destination) => ({
+      destination,
+      matchScore: score(destination),
+      distance: destination.distanceMeters ?? haversineMeters(origin, destination),
+    }))
+    .sort((left, right) => (
+      right.matchScore - left.matchScore
+      || left.distance - right.distance
+      || left.destination.id.localeCompare(right.destination.id)
+    ))
+    .map(({ destination, distance }) => ({ ...destination, distanceMeters: distance }));
+}
+
 const uiCopy = {
   vi: {
     title: 'Khám phá địa điểm',
@@ -132,6 +202,16 @@ const uiCopy = {
     addressResult: 'Địa chỉ',
     searchEmpty: 'Không tìm thấy địa chỉ phù hợp.',
     searchFailed: 'Chưa thể tìm địa điểm. Vui lòng thử lại.',
+    enableLocationNear: 'Bật vị trí để tìm địa điểm gần bạn',
+    exactAddress: 'Địa chỉ đã xác định',
+    approximateAddress: 'Chưa xác định chính xác số nhà',
+    approximateAddressHint: 'UrbanAgent đã tìm được khu vực gần đúng. Hãy xác nhận vị trí trên bản đồ.',
+    confirmPosition: 'Xác nhận vị trí',
+    adjustPin: 'Chỉnh ghim',
+    googleAttribution: 'Google Maps',
+    distanceFromYou: 'Cách bạn',
+    distanceFromScope: 'Cách tâm tìm kiếm',
+    googleMapUnavailable: 'Không thể tải Google Maps. Bạn vẫn có thể thử lại hoặc chọn vị trí thủ công.',
     clearSearch: 'Xóa tìm kiếm',
     noGps: 'Chưa có GPS',
     inRange: 'Trong vùng',
@@ -214,6 +294,16 @@ const uiCopy = {
     addressResult: 'Address',
     searchEmpty: 'No matching address found.',
     searchFailed: 'Could not search places. Please try again.',
+    enableLocationNear: 'Enable location to find places near you',
+    exactAddress: 'Address confirmed',
+    approximateAddress: 'House number not precisely confirmed',
+    approximateAddressHint: 'UrbanAgent found the approximate area. Confirm the position on the map.',
+    confirmPosition: 'Confirm position',
+    adjustPin: 'Adjust pin',
+    googleAttribution: 'Google Maps',
+    distanceFromYou: 'From you',
+    distanceFromScope: 'From search center',
+    googleMapUnavailable: 'Google Maps could not load. Retry or choose a position manually.',
     clearSearch: 'Clear search',
     noGps: 'No GPS yet',
     inRange: 'Inside zone',
@@ -404,6 +494,7 @@ export function PoiExperienceLayer({
   subtitle,
   language = 'vi',
   addingPlaceId = '',
+  initialSearchText = '',
   onAddToTrip,
 }: {
   user: User | null;
@@ -415,6 +506,7 @@ export function PoiExperienceLayer({
   subtitle?: string;
   language?: 'vi' | 'en';
   addingPlaceId?: string;
+  initialSearchText?: string;
   onAddToTrip?: (destination: SearchDestination) => void | Promise<void>;
 }) {
   const ui = uiCopy[language];
@@ -433,9 +525,12 @@ export function PoiExperienceLayer({
   const [activePoiId, setActivePoiId] = useState('');
   const [reviewPoi, setReviewPoi] = useState<SearchablePoi | null>(null);
   const [reviews, setReviews] = useState<PoiReview[]>([]);
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState(initialSearchText);
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchDestination[]>([]);
+  const [searchMeta, setSearchMeta] = useState<DestinationSearchMeta>({});
+  const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<GoogleAutocompleteSuggestion[]>([]);
+  const [autocompleteLoading, setAutocompleteLoading] = useState(false);
   const [selectedDestination, setSelectedDestination] = useState<SearchDestination | null>(null);
   const [searchError, setSearchError] = useState('');
   const [searchRequested, setSearchRequested] = useState(false);
@@ -451,10 +546,10 @@ export function PoiExperienceLayer({
   const visitRef = useRef<VisitState | null>(null);
   const travelRef = useRef<TravelState | null>(null);
   const loggedSearchRef = useRef('');
-  const searchPositionRef = useRef<{ lat: number; lon: number } | null>(null);
   const searchRequestIdRef = useRef(0);
   const routeRequestIdRef = useRef(0);
   const manualPinIdRef = useRef('');
+  const autocompleteSessionTokenRef = useRef(createAutocompleteSessionToken());
 
   const activePoi = useMemo(
     () => allPois.find((poi) => (poi.poiId || poi.id) === activePoiId) || null,
@@ -464,6 +559,15 @@ export function PoiExperienceLayer({
     () => selectedDestination || (activePoi ? poiDestination(activePoi) : null),
     [activePoi, selectedDestination],
   );
+  const searchOrigin = useMemo<SearchOriginInput | undefined>(() => {
+    if (rawPosition && rawPosition.accuracy > 0 && rawPosition.accuracy <= 150) {
+      return { ...rawPosition, source: 'live_gps' };
+    }
+    const tripOrigin = itineraryPois.find((poi) => normalizeCoordinatePair(poi.lat, poi.lon).hasCoordinates);
+    if (tripOrigin) return { lat: tripOrigin.lat, lon: tripOrigin.lon, source: 'active_trip' };
+    if (targetDestination) return { lat: targetDestination.lat, lon: targetDestination.lon, source: 'map_context' };
+    return undefined;
+  }, [itineraryPois, rawPosition, targetDestination]);
   const reviewablePoi = targetDestination ? destinationPoi(targetDestination) : null;
   const distanceToTarget = displayPosition && targetDestination ? haversineMeters(displayPosition, targetDestination) : null;
   const arrivalEligible = Boolean(
@@ -524,7 +628,6 @@ export function PoiExperienceLayer({
 
   useEffect(() => {
     if (!rawPosition) return undefined;
-    searchPositionRef.current = rawPosition;
     let frame = 0;
     const start = displayPosition || rawPosition;
     const startedAt = performance.now();
@@ -646,31 +749,57 @@ export function PoiExperienceLayer({
       if (normalized.length < 2) {
         searchRequestIdRef.current += 1;
         setSearchResults([]);
+        setSearchMeta({});
         setSearchError('');
         setSearchRequested(false);
         return;
       }
       if (!showSearch) return;
+      if (isNearMeSearch(searchText) && searchOrigin?.source !== 'live_gps') {
+        searchRequestIdRef.current += 1;
+        setSearchResults([]);
+        setSearchMeta({ queryIntent: 'CATEGORY_NEARBY' });
+        setSearchError(ui.enableLocationNear);
+        setSearchRequested(true);
+        setSearching(false);
+        return;
+      }
       const requestId = ++searchRequestIdRef.current;
       setSearching(true);
       setSearchError('');
       setSearchRequested(true);
       try {
         const [agentResponse, firebaseResponse, geocodeResponse] = await Promise.allSettled([
-          searchPoisWithAgent(searchText, searchPositionRef.current),
+          searchPoisWithAgent(searchText, searchOrigin ? { lat: searchOrigin.lat!, lon: searchOrigin.lon! } : null),
           firebaseReady ? searchPoisByKeyword(searchText) : Promise.resolve([]),
-          searchGeocodedDestinations(searchText),
+          searchGeocodedDestinations(searchText, searchOrigin),
         ]);
         if (requestId !== searchRequestIdRef.current) return;
         const agentResults = agentResponse.status === 'fulfilled' ? agentResponse.value : [];
         const remote = firebaseResponse.status === 'fulfilled' ? firebaseResponse.value : [];
-        const geocoded = geocodeResponse.status === 'fulfilled' ? geocodeResponse.value : [];
+        const geocoded = geocodeResponse.status === 'fulfilled' ? geocodeResponse.value.results : [];
+        const meta = geocodeResponse.status === 'fulfilled' ? geocodeResponse.value.meta : {};
         const merged = [...agentResults, ...remote, ...fuzzyLocalSearch(searchText, allPois)];
         const deduped = Array.from(new Map(merged.map((poi) => [poi.poiId || poi.id, poi])).values());
-        const internalResults = rankPoisForSearch(searchText, deduped, 8).map(poiDestination);
-        const looksLikeAddress = /\d/.test(searchText);
-        const results = looksLikeAddress ? geocoded : [...internalResults, ...geocoded];
+        let internalResults = rankPoisForSearch(searchText, deduped, 8).map(poiDestination);
+        const origin = meta.origin || (searchOrigin?.lat && searchOrigin?.lon
+          ? { lat: searchOrigin.lat, lon: searchOrigin.lon, source: searchOrigin.source || 'map_context' }
+          : null);
+        if (meta.queryIntent === 'CATEGORY_NEARBY' && origin) {
+          const radiusM = Math.min(Number(meta.radiusM) || 10_000, 20_000);
+          internalResults = rankLocalDestinations(searchText, internalResults, origin)
+            .filter((destination) => (destination.distanceMeters || 0) <= radiusM);
+        }
+        const looksLikeAddress = meta.queryIntent === 'EXACT_ADDRESS' || /\d/.test(searchText);
+        let results = looksLikeAddress ? geocoded : dedupeSearchDestinations([...internalResults, ...geocoded]);
+        if (meta.queryIntent === 'CATEGORY_NEARBY' && origin) {
+          const radiusM = Math.min(Number(meta.radiusM) || 10_000, 20_000);
+          results = rankLocalDestinations(searchText, results, origin)
+            .filter((destination) => (destination.distanceMeters || 0) <= radiusM)
+            .slice(0, 12);
+        }
         setSearchResults(results);
+        setSearchMeta(meta);
         setHighlightedResultIndex(0);
         if (looksLikeAddress && geocodeResponse.status === 'rejected') {
           setSearchError(ui.searchFailed);
@@ -689,13 +818,38 @@ export function PoiExperienceLayer({
       } catch {
         if (requestId !== searchRequestIdRef.current) return;
         setSearchResults([]);
+        setSearchMeta({});
         setSearchError(ui.searchFailed);
       } finally {
         if (requestId === searchRequestIdRef.current) setSearching(false);
       }
     }, 450);
     return () => window.clearTimeout(handle);
-  }, [allPois, firebaseReady, searchText, showSearch, ui.searchFailed, user]);
+  }, [allPois, firebaseReady, searchOrigin, searchText, showSearch, ui.enableLocationNear, ui.searchFailed, user]);
+
+  useEffect(() => {
+    if (!googleDiscoveryMapConfigured || !showSearch || normalizeSearchText(searchText).length < 3) {
+      setAutocompleteSuggestions([]);
+      setAutocompleteLoading(false);
+      return undefined;
+    }
+    const handle = window.setTimeout(async () => {
+      setAutocompleteLoading(true);
+      try {
+        const suggestions = await autocompleteDestinations(
+          searchText,
+          autocompleteSessionTokenRef.current,
+          searchOrigin,
+        );
+        setAutocompleteSuggestions(suggestions);
+      } catch {
+        setAutocompleteSuggestions([]);
+      } finally {
+        setAutocompleteLoading(false);
+      }
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [searchOrigin, searchText, showSearch]);
 
   const confirmArrival = () => {
     if (!arrivalEligible || !reviewablePoi) return;
@@ -718,6 +872,8 @@ export function PoiExperienceLayer({
     setActivePoiId(selected.poi?.poiId || selected.poi?.id || '');
     setSearchText(destination.label);
     setSearchResults([]);
+    setAutocompleteSuggestions([]);
+    autocompleteSessionTokenRef.current = createAutocompleteSessionToken();
     setSearchError('');
     setSearchRequested(false);
     setHighlightedResultIndex(0);
@@ -731,9 +887,30 @@ export function PoiExperienceLayer({
     });
   };
 
+  const selectAutocompleteSuggestion = async (suggestion: GoogleAutocompleteSuggestion) => {
+    setAutocompleteLoading(true);
+    setSearchError('');
+    try {
+      const destination = await resolveAutocompleteDestination(
+        suggestion.placeId,
+        autocompleteSessionTokenRef.current,
+        searchOrigin,
+      );
+      if (destination) selectDestination(destination);
+    } catch {
+      setSearchError(ui.searchFailed);
+    } finally {
+      setAutocompleteLoading(false);
+    }
+  };
+
   const pickManualLocation = (lat: number, lon: number) => {
-    const currentDraft = selectedDestination?.source === 'manual_pin' ? selectedDestination : null;
-    const id = currentDraft?.id || manualPinIdRef.current || createTemporaryPinId();
+    const currentDraft = selectedDestination?.source === 'manual_pin' || selectedDestination?.requiresConfirmation
+      ? selectedDestination
+      : null;
+    const id = currentDraft?.source === 'manual_pin'
+      ? currentDraft.id
+      : manualPinIdRef.current || createTemporaryPinId();
     manualPinIdRef.current = id;
     const draft: SearchDestination = {
       id,
@@ -756,6 +933,15 @@ export function PoiExperienceLayer({
     setAddMessage('');
   };
 
+  const beginApproximatePinConfirmation = () => {
+    if (!selectedDestination?.requiresConfirmation) return;
+    manualPinIdRef.current = createTemporaryPinId();
+    setPinMode(true);
+    setSearchResults([]);
+    setAutocompleteSuggestions([]);
+    setAddMessage('');
+  };
+
   const togglePinSelection = () => {
     if (pinMode) {
       setPinMode(false);
@@ -771,6 +957,7 @@ export function PoiExperienceLayer({
     setPinMode(true);
     setSearchText('');
     setSearchResults([]);
+    setAutocompleteSuggestions([]);
     setSearchError('');
     setSearchRequested(false);
     setHighlightedResultIndex(0);
@@ -788,7 +975,7 @@ export function PoiExperienceLayer({
   };
 
   const addSelectedToTrip = async (destination = targetDestination) => {
-    if (!destination || !onAddToTrip) return;
+    if (!destination || !onAddToTrip || destination.requiresConfirmation) return;
     const normalizedDestination = destination.source === 'manual_pin' && !destination.label.trim()
       ? { ...destination, label: ui.temporaryName }
       : destination;
@@ -803,6 +990,8 @@ export function PoiExperienceLayer({
     searchRequestIdRef.current += 1;
     setSearchText('');
     setSearchResults([]);
+    setAutocompleteSuggestions([]);
+    setSearchMeta({});
     setSearchError('');
     setSearchRequested(false);
     setSelectedDestination(null);
@@ -889,7 +1078,7 @@ export function PoiExperienceLayer({
   };
 
   return (
-    <section className="rounded-2xl border border-cyan-200 bg-white p-5 shadow-lg shadow-slate-200/70">
+    <section className="ua-discovery-surface rounded-2xl border border-cyan-200 bg-white p-5 shadow-lg shadow-slate-200/70">
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-xl font-semibold text-slate-950">{title || ui.title}</h2>
@@ -935,7 +1124,7 @@ export function PoiExperienceLayer({
             <button
               type="button"
               onClick={() => void addSelectedToTrip()}
-              disabled={addingPlaceId === targetDestination.id || (!targetDestination.label.trim() && targetDestination.source !== 'manual_pin')}
+              disabled={targetDestination.requiresConfirmation || addingPlaceId === targetDestination.id || (!targetDestination.label.trim() && targetDestination.source !== 'manual_pin')}
               className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
             >
               {addingPlaceId === targetDestination.id ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
@@ -964,39 +1153,76 @@ export function PoiExperienceLayer({
       <div className="grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="h-[360px]">
-            <MapContainer
-              center={[targetDestination?.lat || displayPosition?.lat || 16.0544, targetDestination?.lon || displayPosition?.lon || 108.2022]}
-              zoom={14}
-              scrollWheelZoom
-              className={pinMode ? 'cursor-crosshair' : undefined}
-              style={{ height: '100%', width: '100%' }}
-            >
-              <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <ManualPinPicker active={pinMode} onPick={pickManualLocation} />
-              <FitPoiBounds userPosition={displayPosition} target={targetDestination} routePath={routePath} />
-              {targetDestination && (
-                <>
-                  <Marker position={[targetDestination.lat, targetDestination.lon]}>
-                    <Popup>{targetDestination.label}</Popup>
+            {googleDiscoveryMapConfigured ? (
+              <GoogleDiscoveryMap
+                center={{
+                  lat: targetDestination?.lat || displayPosition?.lat || 16.0544,
+                  lon: targetDestination?.lon || displayPosition?.lon || 108.2022,
+                }}
+                destination={targetDestination ? {
+                  lat: targetDestination.lat,
+                  lon: targetDestination.lon,
+                  label: targetDestination.label,
+                } : null}
+                results={searchResults}
+                userPosition={displayPosition}
+                routePath={routePath}
+                pinMode={pinMode}
+                onPick={pickManualLocation}
+                onSelectResult={(id) => {
+                  const result = searchResults.find((item) => item.id === id);
+                  if (result) selectDestination(result);
+                }}
+                currentLocationLabel={ui.currentLocation}
+                unavailableLabel={ui.googleMapUnavailable}
+              />
+            ) : (
+              <MapContainer
+                center={[targetDestination?.lat || displayPosition?.lat || 16.0544, targetDestination?.lon || displayPosition?.lon || 108.2022]}
+                zoom={14}
+                scrollWheelZoom
+                className={pinMode ? 'cursor-crosshair' : undefined}
+                style={{ height: '100%', width: '100%' }}
+              >
+                <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                <ManualPinPicker active={pinMode} onPick={pickManualLocation} />
+                <FitPoiBounds userPosition={displayPosition} target={targetDestination} routePath={routePath} />
+                {targetDestination && (
+                  <>
+                    <Marker position={[targetDestination.lat, targetDestination.lon]}>
+                      <Popup>{targetDestination.label}</Popup>
+                    </Marker>
+                    {reviewablePoi && (
+                      <Circle
+                        center={[targetDestination.lat, targetDestination.lon]}
+                        radius={GEOFENCE_RADIUS_M}
+                        pathOptions={{ color: '#22d3ee', fillColor: '#22d3ee', fillOpacity: 0.12 }}
+                      />
+                    )}
+                  </>
+                )}
+                {searchResults.map((result, index) => (
+                  <Marker
+                    key={result.id}
+                    position={[result.lat, result.lon]}
+                    eventHandlers={{ click: () => selectDestination(result) }}
+                  >
+                    <Popup>{index + 1}. {result.label}</Popup>
                   </Marker>
-                  {reviewablePoi && (
-                    <Circle
-                      center={[targetDestination.lat, targetDestination.lon]}
-                      radius={GEOFENCE_RADIUS_M}
-                      pathOptions={{ color: '#22d3ee', fillColor: '#22d3ee', fillOpacity: 0.12 }}
-                    />
-                  )}
-                </>
-              )}
-              {displayPosition && (
-                <Marker position={[displayPosition.lat, displayPosition.lon]} icon={userIcon}>
-                  <Popup>{ui.currentLocation}</Popup>
-                </Marker>
-              )}
-              {!!routePath.length && (
-                <Polyline positions={routePath} pathOptions={{ color: '#7c3aed', weight: 6, opacity: 0.95 }} />
-              )}
-            </MapContainer>
+                ))}
+                {displayPosition && (
+                  <Marker position={[displayPosition.lat, displayPosition.lon]} icon={userIcon}>
+                    <Popup>{ui.currentLocation}</Popup>
+                  </Marker>
+                )}
+                {!!routePath.length && (
+                  <Fragment>
+                    <Polyline positions={routePath} pathOptions={routeCasingOptions(true)} />
+                    <Polyline positions={routePath} pathOptions={routeLineOptions({ selected: true })} />
+                  </Fragment>
+                )}
+              </MapContainer>
+            )}
           </div>
           {pinMode && <div className="flex items-center gap-2 border-t border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><MousePointer2 size={16} /> {selectedDestination?.source === 'manual_pin' ? ui.pinSelectedHint : ui.pinHint}</div>}
           <ExpertRoutePanel route={routeResult} copy={ui} loading={routeLoading} />
@@ -1026,7 +1252,7 @@ export function PoiExperienceLayer({
                 autoComplete="off"
                 className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-10 text-sm text-slate-950 outline-none focus:border-cyan-400"
               />
-              {searching ? (
+              {searching || autocompleteLoading ? (
                 <Loader2 className="absolute right-3 top-3 animate-spin text-cyan-600" size={18} />
               ) : searchText ? (
                 <button
@@ -1039,10 +1265,29 @@ export function PoiExperienceLayer({
                 </button>
               ) : null}
             </div>
+            {!!autocompleteSuggestions.length && (
+              <div className="mt-3 overflow-hidden rounded-xl border border-blue-200 bg-white">
+                {autocompleteSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion.placeId}
+                    type="button"
+                    onClick={() => void selectAutocompleteSuggestion(suggestion)}
+                    className="flex w-full items-start gap-2 border-b border-slate-100 px-3 py-2.5 text-left text-sm text-slate-800 last:border-b-0 hover:bg-blue-50"
+                  >
+                    <MapPin className="mt-0.5 shrink-0 text-blue-600" size={15} />
+                    <span className="min-w-0 flex-1 break-words">{suggestion.text}</span>
+                  </button>
+                ))}
+                <div translate="no" className="border-t border-slate-100 px-3 py-2 text-xs font-normal text-[#5e5e5e]">Google Maps</div>
+              </div>
+            )}
             {!!searchResults.length && (
               <div className="mt-3 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white">
                 {searchResults.map((destination, index) => {
-                  const resultDistance = rawPosition ? haversineMeters(rawPosition, destination) : null;
+                  const distanceOrigin = searchMeta.origin || rawPosition;
+                  const resultDistance = destination.distanceMeters
+                    ?? (distanceOrigin ? haversineMeters(distanceOrigin, destination) : null);
+                  const distanceLabel = searchMeta.origin?.scopeFallback ? ui.distanceFromScope : ui.distanceFromYou;
                   return (
                     <div
                       key={destination.id}
@@ -1060,19 +1305,28 @@ export function PoiExperienceLayer({
                         {(destination.category || resultDistance !== null) && (
                           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
                             {destination.category && <span>Loại: {destination.category}</span>}
-                            {resultDistance !== null && <span>Cách bạn {formatDistance(resultDistance)}</span>}
+                            {resultDistance !== null && <span>{distanceLabel} {formatDistance(resultDistance)}</span>}
                           </div>
+                        )}
+                        {destination.exactness === 'EXACT_ROOFTOP' && destination.autoConfirmed && (
+                          <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 size={14} /> {ui.exactAddress}</div>
+                        )}
+                        {destination.requiresConfirmation && (
+                          <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-700"><AlertTriangle size={14} /> {ui.approximateAddress}</div>
                         )}
                       </button>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <button type="button" onClick={() => selectDestination(destination)} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-cyan-400">Xem trên bản đồ</button>
-                        {onAddToTrip && <button type="button" onClick={() => void addSelectedToTrip(destination)} disabled={addingPlaceId === destination.id} className="rounded-lg bg-teal-700 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{addingPlaceId === destination.id ? ui.addingToTrip : ui.addToTrip}</button>}
+                        {onAddToTrip && <button type="button" onClick={() => void addSelectedToTrip(destination)} disabled={destination.requiresConfirmation || addingPlaceId === destination.id} className="rounded-lg bg-teal-700 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{addingPlaceId === destination.id ? ui.addingToTrip : ui.addToTrip}</button>}
                       </div>
                     </div>
                   );
                 })}
                 {searchResults.some((result) => result.source === 'photon') && (
                   <div className="px-3 py-2 text-[11px] text-slate-500">© OpenStreetMap contributors · Photon</div>
+                )}
+                {searchResults.some((result) => result.source.startsWith('google_')) && (
+                  <div translate="no" className="border-t border-slate-100 px-3 py-2 text-xs font-normal text-[#5e5e5e]">Google Maps</div>
                 )}
               </div>
             )}
@@ -1090,7 +1344,7 @@ export function PoiExperienceLayer({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="text-sm text-slate-500">{targetDestination?.source === 'manual_pin' ? ui.pinSelectedLabel : ui.targetLabel}</div>
-                {targetDestination && targetDestination.source !== 'urbanagent' ? (
+                {targetDestination && ['manual_pin', 'photon'].includes(targetDestination.source) ? (
                   <div className="mt-2 space-y-2">
                     <label className="block text-xs font-semibold text-slate-600">{ui.nameLabel}<input value={targetDestination.label} onChange={(event) => updateTemporaryDestination('label', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-950 outline-none focus:border-cyan-400" /></label>
                     <label className="block text-xs font-semibold text-slate-600">{ui.addressLabel}<input value={targetDestination.address || ''} onChange={(event) => updateTemporaryDestination('address', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-cyan-400" /></label>
@@ -1098,6 +1352,19 @@ export function PoiExperienceLayer({
                   </div>
                 ) : (
                   <><h3 className="mt-1 font-semibold text-slate-950">{targetDestination?.label || ui.selectPoi}</h3><p className="mt-1 text-sm text-slate-500">{targetDestination?.address || targetDestination?.category}</p></>
+                )}
+                {targetDestination?.exactness === 'EXACT_ROOFTOP' && targetDestination.autoConfirmed && (
+                  <p className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-emerald-700"><CheckCircle2 size={16} /> {ui.exactAddress}</p>
+                )}
+                {targetDestination?.requiresConfirmation && (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <div className="flex items-center gap-2 font-semibold"><AlertTriangle size={16} /> {ui.approximateAddress}</div>
+                    <p className="mt-1 leading-5">{ui.approximateAddressHint}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" onClick={beginApproximatePinConfirmation} className="inline-flex items-center gap-2 rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-800"><MapPin size={14} /> {ui.confirmPosition}</button>
+                      <button type="button" onClick={beginApproximatePinConfirmation} className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100">{ui.adjustPin}</button>
+                    </div>
+                  </div>
                 )}
               </div>
               <span className="rounded-full bg-cyan-100 px-3 py-1 text-sm font-semibold text-cyan-800">

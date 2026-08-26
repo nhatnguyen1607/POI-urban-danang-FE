@@ -35,7 +35,7 @@ export const analyticsPromise: Promise<Analytics | null> = firebaseApp
       .catch(() => null)
   : Promise.resolve(null);
 
-export async function getFirebaseIdToken() {
+export async function getFirebaseIdToken(forceRefresh = false) {
   if (!auth?.currentUser) return null;
-  return auth.currentUser.getIdToken();
+  return auth.currentUser.getIdToken(forceRefresh);
 }

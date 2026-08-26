@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Compass, MapPin } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { useAuth } from '../../auth/useAuth';
 import { PoiExperienceLayer } from '../urban-agent/PoiExperienceLayer';
@@ -11,6 +11,7 @@ export default function DashboardPage() {
   const { language } = useLanguage();
   const { user, firebaseReady } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [addingPlaceId, setAddingPlaceId] = useState('');
   const copy = language === 'vi'
     ? {
@@ -35,8 +36,8 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5">
-      <header className="flex flex-col gap-3 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-5">
+      <header className="ua-discovery-hero flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="inline-flex items-center gap-2 text-sm font-semibold text-teal-800"><Compass size={16} /> {copy.badge}</div>
           <h1 className="mt-2 text-3xl font-bold text-slate-950">{copy.title}</h1>
@@ -54,6 +55,7 @@ export default function DashboardPage() {
         subtitle={copy.searchSubtitle}
         language={language}
         addingPlaceId={addingPlaceId}
+        initialSearchText={searchParams.get('query') || ''}
         onAddToTrip={addToTrip}
       />
     </div>

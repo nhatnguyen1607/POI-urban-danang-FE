@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { Fragment, useEffect } from 'react';
 import L from 'leaflet';
 import { Clock3, MapPin, Navigation, Route, TriangleAlert, X } from 'lucide-react';
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
@@ -9,6 +9,7 @@ import {
   type TravelerActionPoi,
   type TravelerRouteResult,
 } from './travelerCapabilities';
+import { routeCasingOptions, routeLineOptions } from './routeVisuals';
 
 function numberedIcon(order: number, tone: 'teal' | 'coral' = 'teal') {
   const background = tone === 'coral' ? '#E76F51' : '#0F766E';
@@ -128,10 +129,10 @@ export function TravelerRouteModal({
               />
               <RouteBounds positions={[...(origin && !illustrative ? [origin] : []), ...positions]} />
               {selectedCoordinates.length > 1 && (
-                <Polyline
-                  positions={selectedCoordinates}
-                  pathOptions={{ color: illustrative ? '#0F766E' : '#0B3B60', weight: 6, opacity: 0.88 }}
-                />
+                <Fragment>
+                  {!illustrative && <Polyline positions={selectedCoordinates} pathOptions={routeCasingOptions(true)} />}
+                  <Polyline positions={selectedCoordinates} pathOptions={routeLineOptions({ selected: !illustrative, fallback: illustrative })} />
+                </Fragment>
               )}
               {origin && !illustrative && (
                 <Marker position={origin} icon={numberedIcon(0, 'coral')}>

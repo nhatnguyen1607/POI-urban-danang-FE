@@ -17,32 +17,8 @@ import { apiClient } from '../utils/apiClient';
 import { AuthContext, type AppRole, type AuthContextValue } from './authContextValue';
 
 const roleKey = (uid: string) => `danang-urban-agent-role:${uid}`;
-const localAdminKey = 'danang-local-admin-session';
-const localAdminTokenKey = 'danang-local-admin-token';
 const demoSessionKey = 'danang-urban-agent-demo-session';
 const demoAuthMode = import.meta.env.VITE_DEMO_AUTH_MODE === 'true';
-
-function createLocalAdminUser() {
-  return {
-    uid: 'local-admin',
-    email: 'admin',
-    displayName: 'Admin',
-    photoURL: null,
-    phoneNumber: null,
-    providerId: 'local-admin',
-    emailVerified: true,
-    isAnonymous: false,
-    metadata: {},
-    providerData: [],
-    refreshToken: '',
-    tenantId: null,
-    delete: async () => undefined,
-    getIdToken: async () => 'local-admin-dev-token',
-    getIdTokenResult: async () => ({ token: 'local-admin-dev-token' }) as any,
-    reload: async () => undefined,
-    toJSON: () => ({ uid: 'local-admin', email: 'admin', displayName: 'Admin' }),
-  } as User;
-}
 
 function createDemoUser() {
   return {
@@ -66,23 +42,8 @@ function createDemoUser() {
   } as User;
 }
 
-function hasLocalAdminSession() {
-  return localStorage.getItem(localAdminKey) === 'true';
-}
-
 function hasDemoSession() {
   return demoAuthMode && sessionStorage.getItem(demoSessionKey) === 'true';
-}
-
-function setLocalAdminSession(enabled: boolean) {
-  if (enabled) {
-    localStorage.setItem(localAdminKey, 'true');
-    localStorage.setItem(localAdminTokenKey, 'local-admin-dev-token');
-    localStorage.setItem(roleKey('local-admin'), 'admin');
-    return;
-  }
-  localStorage.removeItem(localAdminKey);
-  localStorage.removeItem(localAdminTokenKey);
 }
 
 function toVietnameseAuthError(error: unknown) {
@@ -126,23 +87,13 @@ async function ensureUserDocument(user: User, role?: AppRole | null) {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [role, setRole] = useState<AppRole | null>(null);
-  const [loading, setLoading] = useState(Boolean(auth));
+  const [user, setUser] = useState<User | null>(() => (hasDemoSession() ? createDemoUser() : null));
+  const [role, setRole] = useState<AppRole | null>(() => (hasDemoSession() ? 'customer' : null));
+  const [loading, setLoading] = useState(() => Boolean(auth) && !hasDemoSession());
   const [authError, setAuthError] = useState('');
 
   useEffect(() => {
-    if (hasDemoSession()) {
-      setUser(createDemoUser());
-      setRole('customer');
-      setLoading(false);
-      return undefined;
-    }
-    if (hasLocalAdminSession()) {
-      setUser(createLocalAdminUser());
-      setRole('admin');
-      setLoading(false);
-    }
+    if (hasDemoSession()) return undefined;
     if (!auth) return undefined;
     const activeAuth = auth;
     setPersistence(activeAuth, browserLocalPersistence)
@@ -161,12 +112,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (hasDemoSession()) {
         setUser(createDemoUser());
         setRole('customer');
-        setLoading(false);
-        return;
-      }
-      if (hasLocalAdminSession()) {
-        setUser(createLocalAdminUser());
-        setRole('admin');
         setLoading(false);
         return;
       }
@@ -238,20 +183,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuthError('');
         return demoUser;
       },
-      signInWithAdmin: async (username: string, password: string) => {
-        setAuthError('');
-        if (username !== 'admin' || password !== 'admin123') {
-          const message = 'Tài khoản hoặc mật khẩu admin không đúng.';
-          setAuthError(message);
-          throw new Error(message);
-        }
-        const adminUser = createLocalAdminUser();
-        setLocalAdminSession(true);
-        setUser(adminUser);
-        setRole('admin');
-        void ensureUserDocument(adminUser, 'admin');
-        return adminUser;
-      },
       registerWithEmail: async (email: string, password: string) => {
         const activeAuth = auth;
         if (!activeAuth) throw new Error('Firebase is not configured.');
@@ -277,13 +208,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const wasDemo = hasDemoSession();
         sessionStorage.removeItem(demoSessionKey);
         if (wasDemo) {
-          setUser(null);
-          setRole(null);
-          return;
-        }
-        const wasLocalAdmin = hasLocalAdminSession();
-        setLocalAdminSession(false);
-        if (wasLocalAdmin) {
           setUser(null);
           setRole(null);
           return;
