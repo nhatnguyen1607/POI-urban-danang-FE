@@ -35,27 +35,56 @@
   position: relative;
   align-self: center;
   justify-self: center;
-  width: min(480px, calc(100vw - 40px), 64vh);
-  aspect-ratio: 480 / 406;
-  -webkit-mask-image: radial-gradient(ellipse 67% 66% at center, #000 52%, rgba(0, 0, 0, 0.96) 62%, rgba(0, 0, 0, 0.46) 74%, transparent 91%);
-  mask-image: radial-gradient(ellipse 67% 66% at center, #000 52%, rgba(0, 0, 0, 0.96) 62%, rgba(0, 0, 0, 0.46) 74%, transparent 91%);
+  width: min(620px, calc(100vw - 40px), 68vh);
+  aspect-ratio: 640 / 540;
 }
 
-.ua-journey-preloader__poster,
-.ua-journey-preloader__video {
-  position: absolute;
-  inset: 0;
+.ua-globe-flight {
+  display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  overflow: visible;
 }
 
-.ua-journey-preloader__video {
-  opacity: 0;
-  transition: opacity 180ms ease;
+.ua-globe-flight__world {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ua-world-float 5.8s ease-in-out infinite;
 }
 
-.ua-journey-preloader__video.is-ready { opacity: 1; }
+.ua-globe-flight__landmasses {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ua-land-drift 16s ease-in-out infinite;
+}
+
+.ua-globe-flight__orbit {
+  stroke: rgba(255, 255, 255, 0.78);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 1 8;
+  animation: ua-orbit-dash 7.8s linear infinite;
+}
+
+.ua-globe-flight__orbit--back { opacity: 0.42; }
+.ua-globe-flight__orbit--front { opacity: 0.88; }
+
+.ua-globe-flight__landmark {
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  animation: ua-landmark-breathe 6.4s ease-in-out infinite;
+}
+
+.ua-globe-flight__cloud {
+  transform-box: fill-box;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.ua-globe-flight__cloud--back-one { animation: ua-cloud-drift-one 14s ease-in-out infinite; }
+.ua-globe-flight__cloud--back-two { animation: ua-cloud-drift-two 18s ease-in-out infinite; }
+.ua-globe-flight__cloud--front-one { animation: ua-cloud-drift-one 11s ease-in-out -4s infinite reverse; }
+.ua-globe-flight__cloud--front-two { animation: ua-cloud-drift-two 15s ease-in-out -7s infinite reverse; }
 
 .ua-journey-preloader__status {
   z-index: 2;
@@ -172,10 +201,39 @@
   25% { opacity: 1; transform: translateY(-3px); }
 }
 
+@keyframes ua-world-float {
+  0%, 100% { transform: translateY(0) rotate(-0.4deg); }
+  50% { transform: translateY(-8px) rotate(0.6deg); }
+}
+
+@keyframes ua-land-drift {
+  0%, 100% { transform: translateX(-3px); }
+  50% { transform: translateX(7px); }
+}
+
+@keyframes ua-orbit-dash {
+  to { stroke-dashoffset: -100; }
+}
+
+@keyframes ua-landmark-breathe {
+  0%, 12%, 100% { opacity: 0.78; transform: translateY(2px) scale(0.94); }
+  32%, 72% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes ua-cloud-drift-one {
+  0%, 100% { transform: translateX(-8px) translateY(0); }
+  50% { transform: translateX(18px) translateY(-4px); }
+}
+
+@keyframes ua-cloud-drift-two {
+  0%, 100% { transform: translateX(10px) translateY(1px); }
+  50% { transform: translateX(-16px) translateY(-3px); }
+}
+
 @media (max-width: 640px) {
   .ua-journey-preloader { grid-template-rows: auto minmax(260px, 1fr) auto; }
   .ua-journey-preloader__brand { padding-top: max(24px, env(safe-area-inset-top)); }
-  .ua-journey-preloader__scene { width: min(340px, calc(100vw - 20px), 53vh); }
+  .ua-journey-preloader__scene { width: min(360px, calc(100vw - 16px), 55vh); }
   .ua-journey-preloader__status {
     min-height: 160px;
     justify-content: center;
@@ -184,7 +242,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ua-journey-preloader,
-  .ua-journey-preloader__video { transition-duration: 1ms; }
+  .ua-journey-preloader { transition-duration: 1ms; }
   .ua-journey-preloader__dots i { animation: none; opacity: 0.5; }
+  .ua-globe-flight__world,
+  .ua-globe-flight__landmasses,
+  .ua-globe-flight__orbit,
+  .ua-globe-flight__landmark,
+  .ua-globe-flight__cloud {
+    animation: none;
+  }
 }
