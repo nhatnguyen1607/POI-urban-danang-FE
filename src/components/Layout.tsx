@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   BarChart3, Bot, Database, Heart, Languages, LineChart, LogIn, LogOut,
   Map, Menu, MessageSquareHeart, Network, Settings, ShieldCheck, Store,
@@ -96,13 +96,17 @@ export default function Layout() {
   return (
     <div className="ua-product-shell">
       <aside className="ua-app-sidebar">
-        <BrandMark />
+        <Link to="/" className="ua-brand-home-link" aria-label="UrbanAgent Home">
+          <BrandMark />
+        </Link>
         {role && <span className="ua-role-label">{copy.roles[role]}</span>}
         {navigation}
       </aside>
 
       <header className="ua-mobile-header">
-        <BrandMark />
+        <Link to="/" className="ua-brand-home-link" aria-label="UrbanAgent Home">
+          <BrandMark />
+        </Link>
         <button type="button" className="ua-icon-button" onClick={() => setMobileOpen(true)} aria-label={copy.openMenu} aria-expanded={mobileOpen}>
           <Menu size={21} />
         </button>
@@ -113,7 +117,9 @@ export default function Layout() {
           <button className="ua-mobile-drawer__scrim" aria-label={copy.closeMenu} onClick={() => setMobileOpen(false)} />
           <aside className="ua-mobile-drawer__panel">
             <div className="ua-mobile-drawer__head">
-              <BrandMark />
+              <Link to="/" onClick={() => setMobileOpen(false)} className="ua-brand-home-link" aria-label="UrbanAgent Home">
+                <BrandMark />
+              </Link>
               <button type="button" className="ua-icon-button" onClick={() => setMobileOpen(false)} aria-label={copy.closeMenu}><X size={21} /></button>
             </div>
             {navigation}

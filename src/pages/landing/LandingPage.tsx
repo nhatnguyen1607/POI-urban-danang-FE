@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react';
-import L from 'leaflet';
 import { Link, useNavigate } from 'react-router-dom';
-import { MapContainer, Marker, Polyline, Popup, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
-  ArrowRight, Bookmark, Brain, Building2, CalendarClock, ChevronDown, Clock,
-  CloudSun, Coffee, Footprints, Heart, Landmark, LocateFixed, Map, MapPin,
+  ArrowRight, Bookmark, Brain, Building2, CalendarClock, ChevronDown,
+  CloudSun, Coffee, Heart, Landmark, Languages, LocateFixed, Map, MapPin,
   Menu, MessageSquareQuote, Mic, MoonStar, Play, RefreshCw, Route, Search,
   SlidersHorizontal, Sparkles, Trees, UtensilsCrossed, Waves, X,
 } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { BrandMark } from '../../components/BrandMark';
 import { ResponsiveImage } from '../../components/ui/ResponsiveImage';
+import { useLanguage } from '../../i18n/LanguageContext';
+import { LandingRoutePreview } from './LandingRoutePreview';
 
 const asset = (name: string) => `/assets/urbanagent/${name}`;
 
@@ -72,41 +72,15 @@ const timeline = [
   { time: '20:45', icon: '🌉', title: 'Sông Hàn và Cầu Rồng', info: '3,6 km · 11 phút di chuyển' },
 ];
 
-const mapStops = [
-  { name: 'Cà phê Mỹ Khê', position: [16.0641, 108.2437] as [number, number] },
-  { name: 'Bãi biển Mỹ Khê', position: [16.0598, 108.2462] as [number, number] },
-  { name: 'Hải sản địa phương', position: [16.0732, 108.2413] as [number, number] },
-  { name: 'Cầu Rồng', position: [16.0611, 108.2274] as [number, number] },
-];
-
-const roadLikeRoute = [
-  [16.0641, 108.2437], [16.0641, 108.2448], [16.0629, 108.2448],
-  [16.0629, 108.2460], [16.0598, 108.2462], [16.0600, 108.2449],
-  [16.0626, 108.2449], [16.0626, 108.2420], [16.0674, 108.2420],
-  [16.0674, 108.2409], [16.0714, 108.2409], [16.0732, 108.2413],
-  [16.0715, 108.2408], [16.0708, 108.2378], [16.0696, 108.2369],
-  [16.0674, 108.2343], [16.0665, 108.2320], [16.0650, 108.2299],
-  [16.0630, 108.2281], [16.0611, 108.2274],
-] as [number, number][];
-
-function mapMarker(order: number, selected: boolean) {
-  return L.divIcon({
-    className: 'ua-landing-map-marker',
-    html: `<span class="${selected ? 'is-selected' : ''}">${order}</span>`,
-    iconSize: selected ? [44, 44] : [36, 36],
-    iconAnchor: selected ? [22, 22] : [18, 18],
-  });
-}
-
 export default function LandingPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { language, setLanguage } = useLanguage();
   const [prompt, setPrompt] = useState('');
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [saved, setSaved] = useState<string[]>([]);
   const [activeMood, setActiveMood] = useState(moodGroups[0].label);
-  const [selectedMarker, setSelectedMarker] = useState(2);
   const mood = moodGroups.find((item) => item.label === activeMood) || moodGroups[0];
 
   useEffect(() => {
@@ -131,6 +105,14 @@ export default function LandingPage() {
             <a href="#for-business">Doanh nghiệp</a><a href="#about">Giới thiệu</a>
           </nav>
           <div className="hidden items-center gap-3 sm:flex">
+            <label className="ua-public-language">
+              <Languages size={15} aria-hidden="true" />
+              <span className="sr-only">{language === 'vi' ? 'Ngôn ngữ' : 'Language'}</span>
+              <select value={language} onChange={(event) => setLanguage(event.target.value === 'en' ? 'en' : 'vi')}>
+                <option value="vi">VI</option>
+                <option value="en">EN</option>
+              </select>
+            </label>
             <Link to={user ? '/urban-agent' : '/login'} className="ua-public-signin">{user ? 'Mở chuyến đi' : 'Đăng nhập'}</Link>
             <button type="button" onClick={() => openPlanner()} className="ua-public-header-cta"><Sparkles size={16} /> Hỏi UrbanAgent</button>
           </div>
@@ -141,7 +123,15 @@ export default function LandingPage() {
       {menuOpen && (
         <div className="fixed inset-0 z-[70] bg-[var(--ua-navy-950)]/40 sm:hidden" onClick={() => setMenuOpen(false)}>
           <nav className="ml-auto flex h-full w-[min(88vw,340px)] flex-col bg-white p-5 shadow-2xl" aria-label="Menu di động" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between"><BrandMark showTagline={false} /><button type="button" className="ua-icon-button" onClick={() => setMenuOpen(false)} aria-label="Đóng menu"><X size={20} /></button></div>
+            <div className="flex items-center justify-between"><Link to="/" onClick={() => setMenuOpen(false)} className="ua-brand-home-link" aria-label="UrbanAgent Home"><BrandMark showTagline={false} /></Link><button type="button" className="ua-icon-button" onClick={() => setMenuOpen(false)} aria-label="Đóng menu"><X size={20} /></button></div>
+            <label className="ua-public-language mt-7 w-fit">
+              <Languages size={15} aria-hidden="true" />
+              <span>{language === 'vi' ? 'Ngôn ngữ' : 'Language'}</span>
+              <select value={language} onChange={(event) => setLanguage(event.target.value === 'en' ? 'en' : 'vi')}>
+                <option value="vi">VI</option>
+                <option value="en">EN</option>
+              </select>
+            </label>
             <div className="mt-10 grid gap-2">
               {[['Khám phá', '#explore'], ['AI Planner', '#ai-planner'], ['Trải nghiệm', '#experiences'], ['Doanh nghiệp', '#for-business'], ['Giới thiệu', '#about']].map(([label, href]) => <a key={label} href={href} onClick={() => setMenuOpen(false)} className="rounded-xl px-4 py-3 text-[15px] font-medium hover:bg-[var(--ua-soft-sky)]">{label}</a>)}
             </div>
@@ -236,7 +226,6 @@ export default function LandingPage() {
                 <div className="mt-5 space-y-1">
                   {timeline.map((stop, index) => <div key={stop.time} className="relative flex gap-4 rounded-2xl px-3 py-3 hover:bg-[#F3FAFF]"><div className="flex flex-col items-center"><span className="grid h-10 w-10 place-items-center rounded-full bg-[#DDF3FF] text-[16px]">{stop.icon}</span>{index < timeline.length - 1 && <span className="mt-1 w-[2px] flex-1 rounded-full bg-gradient-to-b from-[#1597E5] to-[#DDF3FF]" />}</div><div className="pb-2"><span className="text-[12px] font-semibold tracking-[0.1em] text-[#0767C8]">{stop.time}</span><h3 className="text-[16px] font-medium">{stop.title}</h3><p className="mt-0.5 text-[13px] text-[#607086]">{stop.info}</p></div></div>)}
                 </div>
-                <div className="ua-mini-map mt-4 h-[130px] overflow-hidden rounded-2xl" aria-label="Bản đồ hành trình minh họa"><span className="left-[24%] top-[54%]">1</span><span className="left-[47%] top-[34%]">2</span><span className="left-[68%] top-[61%]">3</span><small>Đường nối minh họa giữa các điểm</small></div>
               </div>
               <div>
                 <div className="space-y-8">
@@ -250,22 +239,7 @@ export default function LandingPage() {
 
         <section className="ua-container py-16 lg:py-24">
           <h2 className="ua-landing-title">Xem cả ngày trên một bản đồ</h2>
-          <div className="ua-landing-route-showcase relative mt-10 h-[420px] overflow-hidden rounded-[24px] shadow-[0_30px_70px_-30px_rgba(14,32,56,0.3)] ring-1 ring-[#0E2038]/8 sm:h-[520px]">
-            <div className="ua-route-showcase-canvas h-full">
-              <MapContainer center={[16.063, 108.237]} zoom={14} scrollWheelZoom={false} zoomControl={false} style={{ height: '100%', width: '100%' }}>
-                <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                <Polyline positions={roadLikeRoute} pathOptions={{ color: '#FFFFFF', weight: 10, opacity: 0.92, lineCap: 'round', lineJoin: 'round' }} />
-                <Polyline positions={roadLikeRoute} pathOptions={{ color: '#0767C8', weight: 5, opacity: 0.96, lineCap: 'round', lineJoin: 'round' }} />
-                {mapStops.map((stop, index) => <Marker key={stop.name} position={stop.position} icon={mapMarker(index + 1, selectedMarker === index + 1)} eventHandlers={{ click: () => setSelectedMarker(index + 1) }}><Popup><strong>{index + 1}. {stop.name}</strong><br />Tuyến minh họa theo đường đi trên bản đồ.</Popup></Marker>)}
-              </MapContainer>
-            </div>
-            <div className="ua-route-showcase-summary absolute left-5 top-5 z-[500] rounded-[20px] bg-white/95 p-5 backdrop-blur sm:w-[300px]">
-              <h3 className="text-[17px] font-semibold">Buổi tối của bạn</h3>
-              <div className="mt-4 space-y-2.5 text-[14px] text-[#607086]"><p className="flex items-center gap-2"><MapPin size={16} className="text-[#0767C8]" /> 4 điểm dừng</p><p className="flex items-center gap-2"><Footprints size={16} className="text-[#0767C8]" /> 7,2 km minh họa</p><p className="flex items-center gap-2"><Clock size={16} className="text-[#0767C8]" /> Thời gian di chuyển ước tính</p></div>
-              <button type="button" onClick={() => openPlanner()} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#0767C8] text-[15px] font-medium text-white"><Route size={16} /> Mở trình lập kế hoạch</button>
-              <p className="mt-3 text-[11px] leading-4 text-[#607086]">Tuyến minh họa theo đường đi trên bản đồ, không phải lộ trình live.</p>
-            </div>
-          </div>
+          <div className="mt-10"><LandingRoutePreview language={language} onOpenPlanner={() => openPlanner()} /></div>
         </section>
 
         <section id="experiences" className="bg-[#FAFCFE] py-20 lg:py-24">
@@ -307,7 +281,7 @@ export default function LandingPage() {
       <footer className="border-t border-[#0E2038]/8 bg-[#FAFCFE]">
         <div className="ua-container py-16">
           <div className="grid gap-12 lg:grid-cols-[1.4fr_repeat(3,1fr)]">
-            <div><BrandMark showTagline={false} /><p className="mt-4 text-[15px] text-[#607086]">Khám phá Đà Nẵng thông minh hơn.</p></div>
+            <div><Link to="/" className="ua-brand-home-link" aria-label="UrbanAgent Home"><BrandMark showTagline={false} /></Link><p className="mt-4 text-[15px] text-[#607086]">Khám phá Đà Nẵng thông minh hơn.</p></div>
             <FooterColumn title="Khám phá" links={[['Địa điểm', '#explore'], ['Trải nghiệm', '#experiences'], ['AI Planner', '#ai-planner'], ['Đã lưu', '/saved']]} />
             <FooterColumn title="UrbanAgent" links={[['Giới thiệu', '#about'], ['Cách hoạt động', '#ai-planner'], ['Doanh nghiệp', '#for-business']]} />
             <FooterColumn title="Sản phẩm" links={[['Lập lịch trình', '/urban-agent'], ['Bản đồ khám phá', '/map-data'], ['Đăng nhập', '/login']]} />

@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { AlertTriangle, Camera, Car, CheckCircle2, Clock, LocateFixed, Loader2, MapPin, MousePointer2, Navigation, Plus, Route, Search, ShieldCheck, Star, X } from 'lucide-react';
 import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet';
@@ -37,6 +37,7 @@ import {
   type TravelerRouteResult,
 } from './travelerCapabilities';
 import { GoogleDiscoveryMap } from './GoogleDiscoveryMap';
+import { routeCasingOptions, routeLineOptions } from './routeVisuals';
 
 const GEOFENCE_RADIUS_M = 45;
 const REVIEW_SKIP_PREFIX = 'danang-poi-review-skip';
@@ -1215,7 +1216,10 @@ export function PoiExperienceLayer({
                   </Marker>
                 )}
                 {!!routePath.length && (
-                  <Polyline positions={routePath} pathOptions={{ color: '#7c3aed', weight: 6, opacity: 0.95 }} />
+                  <Fragment>
+                    <Polyline positions={routePath} pathOptions={routeCasingOptions(true)} />
+                    <Polyline positions={routePath} pathOptions={routeLineOptions({ selected: true })} />
+                  </Fragment>
                 )}
               </MapContainer>
             )}

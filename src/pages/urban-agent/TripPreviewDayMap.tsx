@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { Fragment, useEffect } from 'react';
 import L from 'leaflet';
 import { AlertCircle, Expand, Loader2, Route } from 'lucide-react';
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
 import { roadRoutePoint, useTripRoadRoutes, type TripRoadRouteStop } from './tripRoadRoutes';
+import { routeCasingOptions, routeLineOptions } from './routeVisuals';
 
 function numberedPreviewIcon(order: number, selected: boolean) {
   const background = selected ? '#E76F51' : '#0B3B60';
@@ -108,7 +109,13 @@ export function TripPreviewDayMap({
             {segments.map((segment) => {
               const path = segment.status === 'road' ? segment.path : segment.fallbackPath;
               if (path.length < 2) return null;
-              return <Polyline key={segment.id} positions={path} pathOptions={{ color: segment.status === 'road' ? '#0B3B60' : '#D97706', weight: segment.status === 'road' ? 5 : 4, opacity: 0.82, dashArray: segment.status === 'road' ? undefined : '8 10' }} />;
+              const fallback = segment.status !== 'road';
+              return (
+                <Fragment key={segment.id}>
+                  {!fallback && <Polyline positions={path} pathOptions={routeCasingOptions()} />}
+                  <Polyline positions={path} pathOptions={routeLineOptions({ dayNumber: segment.dayNumber, fallback })} />
+                </Fragment>
+              );
             })}
             {mappedStops.map(({ stop, poi }, index) => (
               <Marker key={stop.stopId} position={[poi.lat, poi.lon]} icon={numberedPreviewIcon(index + 1, selectedStopId === stop.stopId)} zIndexOffset={selectedStopId === stop.stopId ? 1000 : 0} eventHandlers={{ click: () => onSelectStop(stop.stopId) }}>

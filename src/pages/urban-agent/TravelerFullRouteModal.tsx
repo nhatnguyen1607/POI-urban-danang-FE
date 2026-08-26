@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import L from 'leaflet';
 import { AlertTriangle, Car, Clock3, MapPin, Navigation, Route, X } from 'lucide-react';
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
 import { useTripRoadRoutes, roadRoutePoint, type TripRoadRouteSegment, type TripRoadRouteStop } from './tripRoadRoutes';
-
-const DAY_COLORS = ['#0F766E', '#E76F51', '#2563EB', '#7C3AED', '#B45309', '#BE185D', '#0369A1'];
+import { ROUTE_VISUALS, routeCasingOptions, routeColorForDay, routeLineOptions } from './routeVisuals';
 
 function routeMarker(order: number, dayNumber: number, selected: boolean) {
-  const color = selected ? '#111827' : DAY_COLORS[(dayNumber - 1) % DAY_COLORS.length];
+  const color = selected ? ROUTE_VISUALS.selected : routeColorForDay(dayNumber);
   return L.divIcon({
     className: 'urbanagent-full-route-marker',
     html: `<span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:999px;background:${color};color:white;border:3px solid white;font-size:12px;font-weight:800;box-shadow:0 5px 14px rgba(15,23,42,.3)">${order}</span>`,
@@ -93,7 +92,7 @@ export function TravelerFullRouteModal({
         <div className="flex gap-2 overflow-x-auto border-b border-slate-200 px-4 py-3 sm:px-6">
           <button type="button" onClick={() => setDayFilter('all')} className={`shrink-0 rounded-lg px-3 py-2 text-sm font-semibold ${dayFilter === 'all' ? 'bg-teal-700 text-white' : 'bg-slate-100 text-slate-700'}`}>Tất cả</button>
           {dayNumbers.map((dayNumber) => (
-            <button key={dayNumber} type="button" onClick={() => setDayFilter(dayNumber)} className={`shrink-0 rounded-lg px-3 py-2 text-sm font-semibold ${dayFilter === dayNumber ? 'text-white' : 'bg-slate-100 text-slate-700'}`} style={dayFilter === dayNumber ? { backgroundColor: DAY_COLORS[(dayNumber - 1) % DAY_COLORS.length] } : undefined}>Ngày {dayNumber}</button>
+            <button key={dayNumber} type="button" onClick={() => setDayFilter(dayNumber)} className={`shrink-0 rounded-lg px-3 py-2 text-sm font-semibold ${dayFilter === dayNumber ? 'text-white' : 'bg-slate-100 text-slate-700'}`} style={dayFilter === dayNumber ? { backgroundColor: routeColorForDay(dayNumber) } : undefined}>Ngày {dayNumber}</button>
           ))}
         </div>
 
@@ -120,7 +119,17 @@ export function TravelerFullRouteModal({
                   const selected = selectedSegment?.id === segment.id;
                   const path = segment.status === 'road' ? segment.path : segment.fallbackPath;
                   if (path.length < 2) return null;
-                  return <Polyline key={segment.id} positions={path} eventHandlers={{ click: () => setSelectedSegmentId(segment.id) }} pathOptions={{ color: selected ? '#111827' : DAY_COLORS[(segment.dayNumber - 1) % DAY_COLORS.length], weight: selected ? 8 : 5, opacity: selected ? 1 : 0.78, dashArray: segment.status === 'road' ? undefined : '8 10' }} />;
+                  const fallback = segment.status !== 'road';
+                  return (
+                    <Fragment key={segment.id}>
+                      {!fallback && <Polyline positions={path} pathOptions={routeCasingOptions(selected)} />}
+                      <Polyline
+                        positions={path}
+                        eventHandlers={{ click: () => setSelectedSegmentId(segment.id) }}
+                        pathOptions={routeLineOptions({ dayNumber: segment.dayNumber, selected, fallback })}
+                      />
+                    </Fragment>
+                  );
                 })}
                 {visibleStops.map((point) => (
                   <Marker key={point.stopId} position={[point.lat, point.lon]} icon={routeMarker(point.order, point.dayNumber, selectedSegment?.origin.stopId === point.stopId || selectedSegment?.destination.stopId === point.stopId)}>
