@@ -3,9 +3,9 @@
  */
 
 import { getFirebaseIdToken } from '../services/firebase';
+import { demoAuthMode } from '../config/runtimeFlags';
 
 const demoSessionKey = 'danang-urban-agent-demo-session';
-const demoAuthMode = import.meta.env.VITE_DEMO_AUTH_MODE === 'true';
 
 const getApiUrl = () => {
   const apiUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL;

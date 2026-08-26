@@ -17,8 +17,9 @@ import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import type { User } from 'firebase/auth';
 import { db, storage } from './firebase';
 import { apiClient } from '../utils/apiClient';
+import { demoAuthMode } from '../config/runtimeFlags';
+import { validatePlaceSearchQuery } from '../utils/searchQueryValidation';
 
-const demoAuthMode = import.meta.env.VITE_DEMO_AUTH_MODE === 'true';
 const demoSessionKey = 'danang-urban-agent-demo-session';
 
 export interface SearchablePoi {
@@ -139,10 +140,10 @@ function normalizeRequestTimeDestination(item: unknown, index: number): SearchDe
 }
 
 export async function searchGeocodedDestinations(searchText: string, origin?: SearchOriginInput) {
-  const normalized = normalizeSearchText(searchText);
-  if (normalized.length < 3) return { results: [] as SearchDestination[], meta: {} as DestinationSearchMeta };
+  const validation = validatePlaceSearchQuery(searchText);
+  if (!validation.valid) return { results: [] as SearchDestination[], meta: {} as DestinationSearchMeta };
   const params = searchContextParams(origin);
-  params.set('q', searchText.trim());
+  params.set('q', validation.query);
   params.set('limit', '8');
   const response = await apiClient.get(`/api/geocode/search?${params.toString()}`);
   const results = Array.isArray(response?.results) ? response.results : [];
@@ -153,7 +154,7 @@ export async function searchGeocodedDestinations(searchText: string, origin?: Se
 }
 
 export async function autocompleteDestinations(searchText: string, sessionToken: string, origin?: SearchOriginInput) {
-  if (!googleDiscoveryMapConfigured || normalizeSearchText(searchText).length < 3) {
+  if (!googleDiscoveryMapConfigured || !validatePlaceSearchQuery(searchText).valid) {
     return [] as GoogleAutocompleteSuggestion[];
   }
   const params = searchContextParams(origin);
