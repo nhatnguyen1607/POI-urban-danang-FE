@@ -75,6 +75,30 @@ const mergeHeaders = async (...headersList: Array<HeadersInit | undefined>) => {
   return Object.fromEntries(merged.entries());
 };
 
+type ApiErrorPayload = {
+  error?: string | { code?: string; message?: string };
+  message?: string;
+  details?: string;
+};
+
+function throwApiError(response: Response, text: string): never {
+  let payload: ApiErrorPayload | null = null;
+  try {
+    payload = text ? JSON.parse(text) as ApiErrorPayload : null;
+  } catch {
+    // Keep the generic safe message below.
+  }
+  const code = typeof payload?.error === 'string' ? payload.error : payload?.error?.code || null;
+  const retryAfter = response.headers.get('Retry-After');
+  const message = response.status === 429
+    ? `Bạn đang gửi yêu cầu quá nhanh. Vui lòng thử lại sau${retryAfter ? ` ${retryAfter} giây` : ' ít giây'}.`
+    : response.status === 503
+      ? `UrbanAgent đang có nhiều yêu cầu cùng lúc. Vui lòng thử lại sau${retryAfter ? ` ${retryAfter} giây` : ''}.`
+    : payload?.message || (typeof payload?.error === 'object' ? payload.error.message : null) || payload?.details || code
+      || `API Error: ${response.status} ${response.statusText}`;
+  throw new ApiClientError(message, response.status, code);
+}
+
 export const apiClient = {
   get: async (endpoint: string, options?: RequestInit) => {
     const url = `${getApiUrl()}${endpoint}`;
@@ -85,18 +109,7 @@ export const apiClient = {
 
     const text = await response.text();
     if (!response.ok) {
-      try {
-        const payload = text ? JSON.parse(text) : null;
-        const code = typeof payload?.error === 'string' ? payload.error : payload?.error?.code || null;
-        throw new ApiClientError(
-          payload?.error?.message || payload?.details || code || `API Error: ${response.status} ${response.statusText}`,
-          response.status,
-          code,
-        );
-      } catch (error) {
-        if (error instanceof ApiClientError) throw error;
-        throw new ApiClientError(`API Error: ${response.status} ${response.statusText}`, response.status);
-      }
+      throwApiError(response, text);
     }
     if (!text) {
       return null;
@@ -116,13 +129,7 @@ export const apiClient = {
 
     const text = await response.text();
     if (!response.ok) {
-      try {
-        const payload = text ? JSON.parse(text) : null;
-        throw new Error(payload?.error?.message || payload?.details || payload?.error || `API Error: ${response.status} ${response.statusText}`);
-      } catch (error) {
-        if (error instanceof Error && !error.message.startsWith('Unexpected token')) throw error;
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
+      throwApiError(response, text);
     }
     if (!text) {
       return null;
@@ -141,13 +148,7 @@ export const apiClient = {
 
     const text = await response.text();
     if (!response.ok) {
-      try {
-        const payload = text ? JSON.parse(text) : null;
-        throw new Error(payload?.details || payload?.error?.message || payload?.error || `API Error: ${response.status} ${response.statusText}`);
-      } catch (error) {
-        if (error instanceof Error && !error.message.startsWith('Unexpected token')) throw error;
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
+      throwApiError(response, text);
     }
     if (!text) {
       return null;
@@ -165,13 +166,7 @@ export const apiClient = {
 
     const text = await response.text();
     if (!response.ok) {
-      try {
-        const payload = text ? JSON.parse(text) : null;
-        throw new Error(payload?.details || payload?.error?.message || payload?.error || `API Error: ${response.status} ${response.statusText}`);
-      } catch (error) {
-        if (error instanceof Error && !error.message.startsWith('Unexpected token')) throw error;
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
+      throwApiError(response, text);
     }
     if (!text) {
       return null;

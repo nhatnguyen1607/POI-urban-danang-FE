@@ -50,7 +50,10 @@ function loadGoogleMaps() {
   if (window.google?.maps) return Promise.resolve(window.google.maps);
   if (window.__urbanAgentGoogleMapsPromise) return window.__urbanAgentGoogleMapsPromise;
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-  if (!apiKey) return Promise.reject(new Error('GOOGLE_MAPS_PLATFORM_CONFIGURATION_REQUIRED'));
+  const explicitlyEnabled = import.meta.env.VITE_GOOGLE_PLACES_ENABLED === 'true';
+  if (!apiKey || !explicitlyEnabled) {
+    return Promise.reject(new Error('GOOGLE_MAPS_PLATFORM_CONFIGURATION_REQUIRED'));
+  }
   window.__urbanAgentGoogleMapsPromise = new Promise((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>('script[data-urbanagent-google-map]');
     if (existing) {

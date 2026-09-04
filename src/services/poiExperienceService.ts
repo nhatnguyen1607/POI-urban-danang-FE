@@ -90,7 +90,8 @@ export interface GoogleAutocompleteSuggestion {
   attribution: 'Google Maps';
 }
 
-export const googleDiscoveryMapConfigured = Boolean(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
+export const googleDiscoveryMapConfigured = import.meta.env.VITE_GOOGLE_PLACES_ENABLED === 'true'
+  && Boolean(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
 
 function searchContextParams(origin?: SearchOriginInput) {
   const params = new URLSearchParams({
