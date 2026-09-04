@@ -91,7 +91,9 @@ function throwApiError(response: Response, text: string): never {
   const code = typeof payload?.error === 'string' ? payload.error : payload?.error?.code || null;
   const retryAfter = response.headers.get('Retry-After');
   const message = response.status === 429
-    ? `Hệ thống đang bận. Vui lòng thử lại sau${retryAfter ? ` ${retryAfter} giây` : ' ít phút'}.`
+    ? `Bạn đang gửi yêu cầu quá nhanh. Vui lòng thử lại sau${retryAfter ? ` ${retryAfter} giây` : ' ít giây'}.`
+    : response.status === 503
+      ? `UrbanAgent đang có nhiều yêu cầu cùng lúc. Vui lòng thử lại sau${retryAfter ? ` ${retryAfter} giây` : ''}.`
     : payload?.message || (typeof payload?.error === 'object' ? payload.error.message : null) || payload?.details || code
       || `API Error: ${response.status} ${response.statusText}`;
   throw new ApiClientError(message, response.status, code);
