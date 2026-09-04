@@ -42,6 +42,8 @@ import { TravelerRouteModal } from './TravelerRouteModal';
 import { TravelerFullRouteModal } from './TravelerFullRouteModal';
 import { TravelerStopTravelActions } from './TravelerStopTravelActions';
 import type { TripRoadRouteSegment } from './tripRoadRoutes';
+import { PoiTrustIndicator } from '../../features/trust/PoiTrustIndicator';
+import type { PoiTrust } from '../../features/trust/trustPresentation';
 import {
   consumeQueuedTripPlace,
   readActiveTripSession,
@@ -76,11 +78,13 @@ interface PoiResult {
   lat: number;
   lon: number;
   hasCoordinates?: boolean;
-  score: number;
+  score?: number;
+  rankingPosition?: number;
   rating?: number;
   reason: string;
   warnings?: string[];
   actions?: { type: string; label: string; url?: string }[];
+  trust?: PoiTrust | null;
 }
 
 interface ItineraryItem {
@@ -170,7 +174,8 @@ interface BusinessArea {
   id: string;
   lat: number;
   lon: number;
-  score: number;
+  score?: number;
+  rankingPosition?: number;
   reason: string;
   warnings: string[];
   signals: {
@@ -200,7 +205,8 @@ interface BusinessArea {
     area_potential: string;
     complementary_poi_analysis: string;
     risk_warnings: string[];
-    recommended_actions: string[];
+    recommended_actions?: string[];
+    verification_checklist?: string[];
     used_evidence_ids: string[];
     missing_evidence: string[];
   };
@@ -398,6 +404,7 @@ function poiFromV2(input: unknown, fallbackIndex = 0): PoiResult {
     score: Math.round(score <= 1 ? score * 100 : score),
     reason: stringValue(source.reason) || stringValue(poi.reason) || 'Phù hợp với nhu cầu chuyến đi.',
     warnings: Array.isArray(source.warnings) ? source.warnings.map(String) : [],
+    trust: valueRecord(poi.trust) as PoiTrust,
     actions: coordinates.hasCoordinates
       ? [
           {
@@ -777,6 +784,7 @@ export default function UrbanAgentPage() {
         warningLabels: uniquePresentationLabels(item.warnings || [], humanizeWarning),
         score: poi.score,
         hasCoordinates: poi.hasCoordinates !== false && isFiniteCoord(poi.lat, poi.lon),
+        trust: poi.trust,
         status,
       };
     })
@@ -2103,6 +2111,7 @@ export default function UrbanAgentPage() {
                                     </Badge>
                                   </div>
                                   <p className="mt-3 text-sm leading-6 text-slate-700">{stop.reason || poi.reason}</p>
+                                  <div className="mt-3"><PoiTrustIndicator trust={poi.trust} compact /></div>
                                   {Boolean(stop.reasonCodes?.length) && (
                                     <details className="mt-2 text-xs text-slate-600">
                                       <summary className="cursor-pointer">Tín hiệu phù hợp</summary>
@@ -2240,9 +2249,9 @@ export default function UrbanAgentPage() {
                       </p>
                     ))}
                   </div>
-                  <div className="rounded-xl bg-emerald-400/10 px-5 py-4 text-center">
-                    <div className="text-3xl font-bold text-emerald-300">{area.score}</div>
-                    <div className="text-xs uppercase tracking-wide text-emerald-100/70">{t.opportunity}</div>
+                  <div className="rounded-xl bg-sky-400/10 px-5 py-4 text-center">
+                    <div className="text-2xl font-bold text-sky-200">#{area.rankingPosition || index + 1}</div>
+                    <div className="text-xs text-sky-100/70">Thứ tự khảo sát, không phải điểm đầu tư</div>
                   </div>
                 </div>
 
@@ -2466,7 +2475,7 @@ function BusinessInsightPanel({ area, text }: { area: BusinessArea; text: typeof
         <InsightBlock title={text.potential} body={insight.area_potential} />
         <InsightBlock title={text.complementaryPoi} body={insight.complementary_poi_analysis} />
         <InsightList title={text.risks} items={insight.risk_warnings} tone="warning" />
-        <InsightList title={text.nextActions} items={insight.recommended_actions} tone="action" />
+        <InsightList title="Checklist xác minh" items={insight.verification_checklist || insight.recommended_actions || []} tone="action" />
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">

@@ -341,9 +341,9 @@ const sellerCopy = {
     stage: 'Stage',
     evidencePack: 'Evidence Pack & AI Interpretation',
     aiInterpretation: 'AI Brain Interpretation',
-    opportunityGauge: 'Opportunity Score Gauge',
+    opportunityGauge: 'Tóm tắt bằng chứng',
     evidenceTable: 'Evidence Table',
-    actionRecommendations: 'Action Recommendations',
+    actionRecommendations: 'Checklist xác minh',
     competitors: 'Competitors',
     complementaryPois: 'Complementary POIs',
     routeWarnings: 'Route Warnings',
@@ -400,9 +400,9 @@ const sellerCopy = {
     stage: 'Stage',
     evidencePack: 'Evidence Pack & AI Interpretation',
     aiInterpretation: 'AI Brain Interpretation',
-    opportunityGauge: 'Opportunity Score Gauge',
+    opportunityGauge: 'Evidence summary',
     evidenceTable: 'Evidence Table',
-    actionRecommendations: 'Action Recommendations',
+    actionRecommendations: 'Verification checklist',
     competitors: 'Competitors',
     complementaryPois: 'Complementary POIs',
     routeWarnings: 'Route Warnings',
@@ -472,7 +472,7 @@ function percent(value?: number) {
 function formatAreaTitle(area: any, index: number, copy: SellerCopy = sellerCopy.vi) {
   const poiCount = area.evidence?.rawCounts?.poiTotalInArea ?? area.samplePOIs?.length ?? 0;
   const competitors = area.signals?.directCompetitors ?? area.evidence?.rawCounts?.directCompetitorsInArea ?? 0;
-  return `Top ${index + 1}: ${copy.potentialArea} ${Math.round(Number(area.score || 0))}/100, ${copy.has} ${poiCount} ${copy.poiAnd} ${competitors} ${copy.directCompetitors}.`;
+  return `Khu vực khảo sát ${index + 1}: ${copy.has} ${poiCount} ${copy.poiAnd} ${competitors} ${copy.directCompetitors}.`;
 }
 
 function formatAreaSummary(area: any, copy: SellerCopy = sellerCopy.vi) {
@@ -486,7 +486,6 @@ function formatAreaSummary(area: any, copy: SellerCopy = sellerCopy.vi) {
 
 function buildMetricData(area: any, copy: SellerCopy = sellerCopy.vi) {
   return [
-    { label: copy.potentialArea, value: Math.round(Number(area.score || 0)) },
     { label: copy.demand, value: clampPercent(area.signals?.demandProxy) },
     { label: copy.competition, value: clampPercent(area.signals?.competitionPenalty) },
     { label: copy.accessibility, value: clampPercent(area.signals?.accessibility) },
@@ -508,7 +507,6 @@ function serializeAreaSuggestion(area: any, index: number) {
     rank: index + 1,
     title: formatAreaTitle(area, index),
     summary: formatAreaSummary(area),
-    score: Math.round(Number(area.score || 0)),
     lat: Number(area.lat),
     lon: Number(area.lon || area.lng),
     signals: area.signals || {},
@@ -1226,7 +1224,7 @@ export function SellerAnalyticsPage() {
                 <MapContainer center={[16.0544, 108.2022]} zoom={12} scrollWheelZoom={false} style={{ height: '100%', width: '100%' }}>
                   <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                   {areas.map((area: any, index: number) => {
-                    const score = Number(area.score || 0);
+                    const signal = clampPercent(area.signals?.demandProxy);
                     const lat = Number(area.lat);
                     const lon = Number(area.lon || area.lng);
                     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
@@ -1234,11 +1232,11 @@ export function SellerAnalyticsPage() {
                       <Circle
                         key={area.id || index}
                         center={[lat, lon]}
-                        radius={350 + score * 10}
-                        pathOptions={{ color: '#0891b2', fillColor: '#0891b2', fillOpacity: Math.max(0.18, Math.min(0.58, score / 140)) }}
+                        radius={500}
+                        pathOptions={{ color: '#0891b2', fillColor: '#0891b2', fillOpacity: Math.max(0.18, Math.min(0.5, signal / 180)) }}
                       >
                         <Popup>
-                          <strong>Top {index + 1}: {score}/100</strong>
+                          <strong>Khu vực khảo sát {index + 1}</strong>
                           <br />
                           {copy.demand} {percent(area.signals?.demandProxy)} · {copy.competition} {percent(area.signals?.competitionPenalty)}
                         </Popup>
@@ -1431,29 +1429,10 @@ function SuggestionCard({
             </p>
           )}
         </div>
-        <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-700">
-          {Math.round(Number(area.score || 0))}
-        </span>
+        <span className="rounded-full bg-sky-100 px-3 py-1 text-sm font-bold text-sky-800">#{index + 1}</span>
       </div>
       <EvaluationSignalsPanel area={area} copy={copy} />
     </article>
-  );
-}
-
-function OpportunityGauge({ score }: { score: number }) {
-  const normalized = Math.max(0, Math.min(100, Math.round(Number(score || 0))));
-  const angle = (normalized / 100) * 180 - 90;
-  return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-5">
-      <div className="relative h-36 w-72 overflow-hidden">
-        <div className="absolute left-0 top-0 h-72 w-72 rounded-full bg-gradient-to-r from-red-200 via-amber-200 to-emerald-300" />
-        <div className="absolute left-6 top-6 h-60 w-60 rounded-full bg-white" />
-        <div className="absolute bottom-0 left-1/2 h-1 w-28 origin-left rounded-full bg-slate-950" style={{ transform: `rotate(${angle}deg)` }} />
-        <div className="absolute bottom-[-10px] left-1/2 h-5 w-5 -translate-x-1/2 rounded-full bg-slate-950" />
-      </div>
-      <div className="mt-2 text-4xl font-black text-slate-950">{normalized}</div>
-      <div className="text-sm font-semibold text-slate-500">/ 100</div>
-    </div>
   );
 }
 
@@ -1542,7 +1521,7 @@ function EvidenceList({ title, items }: { title: string; items: any[] }) {
 }
 
 function ActionRecommendations({ area, copy }: { area: any; copy: SellerCopy }) {
-  const actions = area.llmInsight?.recommended_actions || [];
+  const actions = area.llmInsight?.verification_checklist || area.llmInsight?.recommended_actions || [];
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5">
       <h3 className="mb-4 flex items-center gap-2 font-bold text-slate-950">
@@ -1574,16 +1553,13 @@ function BusinessDecisionReport({ area, areas, copy }: { area: any; areas: any[]
         </div>
         <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-slate-700">Area {area.id}</span>
       </div>
-      <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-        <OpportunityGauge score={area.score} />
-        <EvidencePackPanel area={area} copy={copy} />
-      </div>
+      <EvidencePackPanel area={area} copy={copy} />
       <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
         <EvidenceTable area={area} copy={copy} />
         <ActionRecommendations area={area} copy={copy} />
       </div>
       <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-        {copy.rawCounts}: {areas.length} candidate areas scored. {area.guardrail?.passed ? 'Guardrail passed.' : 'Guardrail needs review.'}
+        {copy.rawCounts}: {areas.length} candidate areas reviewed. {area.guardrail?.passed ? 'Guardrail passed.' : 'Guardrail needs review.'}
       </div>
     </section>
   );

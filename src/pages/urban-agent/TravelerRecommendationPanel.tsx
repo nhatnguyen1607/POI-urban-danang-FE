@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { CheckCircle2, Loader2, MapPin, Plus, RotateCcw, Sparkles, X } from 'lucide-react';
+import { PoiTrustIndicator } from '../../features/trust/PoiTrustIndicator';
+import type { PoiTrust } from '../../features/trust/trustPresentation';
 
 export type TravelerRecommendationCandidate = {
   id: string;
@@ -11,6 +13,7 @@ export type TravelerRecommendationCandidate = {
   warningLabels: string[];
   score?: number;
   hasCoordinates: boolean;
+  trust?: PoiTrust | null;
   status: 'recommended' | 'included' | 'excluded' | 'scheduled';
 };
 
@@ -132,6 +135,7 @@ export function TravelerRecommendationPanel({
                 </div>
 
                 <p className="mt-3 text-sm leading-6 text-slate-700">{candidate.reason}</p>
+                <div className="mt-3"><PoiTrustIndicator trust={candidate.trust} compact /></div>
 
                 {candidate.reasonLabels.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Lý do phù hợp">
