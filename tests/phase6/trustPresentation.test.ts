@@ -24,7 +24,7 @@ test('trust indicator renders expandable source and verification details', () =>
 test('B2B surfaces avoid investment score and recommendation semantics', () => {
   const rolePage = readFileSync('src/pages/role/RolePages.tsx', 'utf8');
   const landing = readFileSync('src/pages/landing/LandingPage.tsx', 'utf8');
-  assert.doesNotMatch(rolePage, /Opportunity Score Gauge|\/ 100|candidate areas scored/);
+  assert.doesNotMatch(rolePage, /Opportunity Score Gauge|\/ 100|candidate areas scored|recommend areas|Suggested areas|Khu vực tiềm năng|gợi ý khu vực/i);
   assert.match(rolePage, /Verification checklist|Checklist xác minh/);
   assert.doesNotMatch(landing, /Nên mở study café/);
   assert.match(landing, /Dữ liệu cần xác minh/);
