@@ -8,17 +8,25 @@ import {
   onSnapshot,
   query as firestoreQuery,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   type Unsubscribe,
   type DocumentData,
 } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import type { User } from 'firebase/auth';
 import { db, storage } from './firebase';
 import { apiClient } from '../utils/apiClient';
 import { demoAuthMode } from '../config/runtimeFlags';
 import { validatePlaceSearchQuery } from '../utils/searchQueryValidation';
+import {
+  createReviewSubmissionId,
+  uploadOptimizedReviewImages,
+  type ReviewImageMetadata,
+  type ReviewImageMetrics,
+  type ReviewUploadProgress,
+} from './reviewImageUpload';
 
 const demoSessionKey = 'danang-urban-agent-demo-session';
 
@@ -186,6 +194,7 @@ export interface PoiReview {
   rating: number;
   comment: string;
   imageUrls: string[];
+  imageMetadata?: ReviewImageMetadata[];
   status: 'published' | 'hidden';
   createdAt?: { toMillis?: () => number } | null;
 }
@@ -442,21 +451,68 @@ export async function incrementPoiCounter(poiId: string, field: 'timesAddedToIti
   }).catch(() => undefined);
 }
 
-export function uploadReviewImages({ files, poiId, userId }: { files: File[]; poiId: string; userId: string }) {
+function isTransientStorageError(error: unknown) {
+  const code = String((error as { code?: unknown })?.code || '');
+  return ![
+    'storage/unauthorized',
+    'storage/unauthenticated',
+    'storage/invalid-argument',
+    'storage/invalid-format',
+    'storage/object-not-found',
+    'storage/quota-exceeded',
+  ].includes(code);
+}
+
+export function uploadReviewImages({
+  files,
+  poiId,
+  userId,
+  submissionId,
+  onProgress,
+}: {
+  files: File[];
+  poiId: string;
+  userId: string;
+  submissionId: string;
+  onProgress?: (progress: ReviewUploadProgress) => void;
+}) {
   if (!storage) throw new Error('Firebase Storage is not configured.');
   const activeStorage = storage;
-  return Promise.all(
-    files.map(async (file, index) => {
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const objectPath = `reviews/${poiId}/${userId}/${Date.now()}-${index}-${safeName}`;
-      const imageRef = ref(activeStorage, objectPath);
-      await uploadBytes(imageRef, file, {
+  return uploadOptimizedReviewImages({
+    files,
+    poiId,
+    userId,
+    submissionId,
+    onProgress,
+    shouldRetry: isTransientStorageError,
+    upload: ({ file, storagePath, signal, onProgress: reportBytes }) => {
+      const imageRef = ref(activeStorage, storagePath);
+      const task = uploadBytesResumable(imageRef, file, {
         contentType: file.type || 'application/octet-stream',
-        customMetadata: { poiId, userId },
+        customMetadata: { poiId, userId, submissionId },
       });
-      return getDownloadURL(imageRef);
-    }),
-  );
+      return new Promise<string>((resolve, reject) => {
+        const abort = () => task.cancel();
+        signal.addEventListener('abort', abort, { once: true });
+        task.on(
+          'state_changed',
+          (snapshot) => reportBytes(snapshot.bytesTransferred),
+          (error) => {
+            signal.removeEventListener('abort', abort);
+            reject(error);
+          },
+          async () => {
+            signal.removeEventListener('abort', abort);
+            try {
+              resolve(await getDownloadURL(task.snapshot.ref));
+            } catch (error) {
+              reject(error);
+            }
+          },
+        );
+      });
+    },
+  });
 }
 
 export async function createPoiReview({
@@ -468,6 +524,8 @@ export async function createPoiReview({
   visitPurpose,
   visitMood,
   autoContext,
+  submissionId = createReviewSubmissionId(),
+  onProgress,
 }: {
   poi: SearchablePoi;
   user: User;
@@ -477,10 +535,27 @@ export async function createPoiReview({
   visitPurpose?: VisitPurpose | '';
   visitMood?: VisitMood | '';
   autoContext?: AutoContext;
+  submissionId?: string;
+  onProgress?: (progress: ReviewUploadProgress) => void;
 }) {
   if (!db) throw new Error('Firestore is not configured.');
+  const totalStartedAt = performance.now();
   const poiId = poi.poiId || poi.id;
-  const imageUrls = imageFiles.length ? await uploadReviewImages({ files: imageFiles, poiId, userId: user.uid }) : [];
+  const imageResult = imageFiles.length
+    ? await uploadReviewImages({ files: imageFiles, poiId, userId: user.uid, submissionId, onProgress })
+    : {
+        uploads: [],
+        metrics: { originalBytes: 0, optimizedBytes: 0, optimizationDurationMs: 0, uploadDurationMs: 0 },
+      };
+  const imageUrls = imageResult.uploads.map((item) => item.url);
+  onProgress?.({
+    phase: 'saving',
+    completedFiles: imageFiles.length,
+    totalFiles: imageFiles.length,
+    uploadedBytes: imageResult.metrics.optimizedBytes,
+    totalBytes: imageResult.metrics.optimizedBytes,
+    percent: 100,
+  });
   const payload = {
     poiId,
     poiName: poi.name || poi.title || '',
@@ -493,19 +568,33 @@ export async function createPoiReview({
     visitMood: visitMood || null,
     context: autoContext || getAutoContext(),
     imageUrls,
+    imageMetadata: imageResult.uploads.map((item) => item.metadata),
     imageCount: imageUrls.length,
     status: 'published',
     visibility: 'public',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
-  const ref = await addDoc(collection(db, 'reviews'), payload);
+  const reviewRef = doc(db, 'reviews', submissionId);
+  const writeStartedAt = performance.now();
+  await setDoc(reviewRef, payload);
+  const feedbackWriteDurationMs = performance.now() - writeStartedAt;
   await updateDoc(doc(db, 'pois', poiId), {
     reviewCount: increment(1),
     ratingSum: increment(rating),
     updatedAt: serverTimestamp(),
   }).catch(() => undefined);
-  return { id: ref.id, ...payload, imageUrls } as PoiReview;
+  const submissionMetrics: ReviewImageMetrics & { feedbackWriteDurationMs: number; totalDurationMs: number } = {
+    ...imageResult.metrics,
+    feedbackWriteDurationMs,
+    totalDurationMs: performance.now() - totalStartedAt,
+  };
+  return {
+    id: reviewRef.id,
+    ...payload,
+    imageUrls,
+    submissionMetrics,
+  } as PoiReview & { submissionMetrics: typeof submissionMetrics };
 }
 
 export async function recordUserAnalyticsEvent(input: {
