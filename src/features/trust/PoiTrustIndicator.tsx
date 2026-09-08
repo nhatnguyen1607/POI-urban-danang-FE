@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 import { formatVerificationTime, trustPresentation, type PoiTrust } from './trustPresentation';
+import { PartnerAvailability } from './PartnerAvailability';
 
 export function PoiTrustIndicator({ trust, compact = false }: { trust?: PoiTrust | null; compact?: boolean }) {
   const view = trustPresentation(trust);
@@ -24,6 +25,7 @@ export function PoiTrustIndicator({ trust, compact = false }: { trust?: PoiTrust
           {item.confidenceReason && <div>{item.confidenceReason}</div>}
         </div>
       ))}
+      <PartnerAvailability trust={trust} />
     </details>
   );
 }

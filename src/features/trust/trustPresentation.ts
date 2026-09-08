@@ -16,9 +16,62 @@ export type PoiTrust = {
   currentStatusVerified?: boolean;
   conflict?: boolean;
   message?: string | null;
-  availability?: { state?: string; handoffRequired?: boolean };
+  availability?: {
+    state?: string;
+    handoffRequired?: boolean;
+    providerStatus?: string;
+    providerName?: string | null;
+    observedAt?: string | null;
+    validUntil?: string | null;
+    price?: number | null;
+    currency?: string | null;
+  };
+  handoff?: {
+    providerId?: string;
+    providerName?: string;
+    capability?: string;
+    url?: string;
+    evidenceState?: string;
+  } | null;
   evidence?: TrustEvidence[];
 };
+
+const HANDOFF_DOMAINS = ['booking.com', 'traveloka.com', 'grab.com', 'shopeefood.vn'];
+
+export function safePartnerHandoffUrl(value?: string | null) {
+  try {
+    const url = new URL(value || '');
+    const hostname = url.hostname.toLowerCase();
+    return url.protocol === 'https:' && HANDOFF_DOMAINS.some((domain) => hostname === domain || hostname.endsWith('.' + domain))
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function availabilityPresentation(trust?: PoiTrust | null) {
+  const availability = trust?.availability;
+  const state = String(availability?.state || 'NOT_APPLICABLE');
+  if (state === 'NOT_APPLICABLE' && !trust?.handoff) return null;
+  if (state === 'CONFLICT') {
+    return { label: 'Nguồn phòng trống chưa thống nhất', detail: 'Hãy kiểm tra trực tiếp với nhà cung cấp trước khi quyết định.', tone: 'warning' as const };
+  }
+  if (state === 'AVAILABLE') {
+    return {
+      label: 'Còn phòng theo đối tác',
+      detail: availability?.observedAt ? 'Đã xác minh lúc ' + formatVerificationTime(availability.observedAt) + '.' : 'Đã được đối tác xác minh gần đây.',
+      tone: 'positive' as const,
+    };
+  }
+  if (state === 'SOLD_OUT' || state === 'UNAVAILABLE') {
+    return { label: state === 'SOLD_OUT' ? 'Đối tác báo hết phòng' : 'Đối tác báo không khả dụng', detail: 'Trạng thái có thể thay đổi; hãy kiểm tra lại trước khi đặt.', tone: 'warning' as const };
+  }
+  if (state === 'STALE') {
+    return { label: 'Thông tin phòng có thể đã thay đổi', detail: 'Bằng chứng khả dụng đã hết thời hạn và không còn được xem là trực tiếp.', tone: 'warning' as const };
+  }
+  return { label: 'Chưa xác minh phòng trống', detail: 'UrbanAgent chưa xác minh tình trạng phòng trống.', tone: 'neutral' as const };
+}
 
 export function trustPresentation(trust?: PoiTrust | null) {
   if (!trust) return { label: 'Chưa xác minh', tone: 'neutral' as const, detail: 'Chưa có bằng chứng trạng thái hiện hành.' };
