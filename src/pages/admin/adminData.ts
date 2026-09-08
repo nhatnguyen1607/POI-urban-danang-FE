@@ -119,6 +119,23 @@ export interface AdminFeedbackRecord {
   createdAt: string | null;
 }
 
+export interface AdminPartnerProvider {
+  providerId: string;
+  providerName: string;
+  enabled: boolean;
+  capabilities: string[];
+  status: 'ENABLED' | 'DISABLED' | 'DEGRADED' | 'OPEN_CIRCUIT';
+  lastSuccessAt: string | null;
+  lastErrorCategory: string | null;
+  circuitState: string;
+}
+
+export interface AdminMerchantClaim {
+  merchantId: string | null;
+  placeId: string | null;
+  claimStatus: string;
+}
+
 const initialSnapshot: SafeAdminSnapshot = {
   loading: true,
   error: null,
@@ -336,4 +353,14 @@ export function useAdminTripDetail(tripId: string | null) {
 
 export function useAdminFeedback() {
   return useAdminRequest<{ feedback: AdminFeedbackRecord[] }>('/api/admin/feedback?limit=60', { feedback: [] });
+}
+
+export function useAdminPartnerReadiness() {
+  const providers = useAdminRequest<{ providers: AdminPartnerProvider[] }>('/api/admin/partners/status', { providers: [] });
+  const claims = useAdminRequest<{
+    claims: AdminMerchantClaim[];
+    mutation?: string;
+    autoVerification?: boolean;
+  }>('/api/admin/merchant-claims', { claims: [], autoVerification: false });
+  return { providers, claims };
 }
