@@ -1,0 +1,450 @@
+[
+  {
+    "branch": "demo/2026-08-07-end-to-end",
+    "sha": "791fa7e3f81718a0dd2bd4f3395603603d3f2152",
+    "mergeBase": "7127e662c3d0077a46121dadb69ed2527aecded9",
+    "rawAhead": 1,
+    "rawBehind": 57,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      ".env.example",
+      "src/App.tsx",
+      "src/pages/demo/DemoTripPlannerPage.tsx"
+    ],
+    "uniqueCommits": [
+      "791fa7e3f81718a0dd2bd4f3395603603d3f2152 feat(demo): add traveler planning interface"
+    ],
+    "patchEquivalence": [
+      "+ 791fa7e3f81718a0dd2bd4f3395603603d3f2152"
+    ],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "docs/multi-source-poi-governance",
+    "sha": "3fba7cce8823fef63b1b8e42a93ee46120948ab3",
+    "mergeBase": "3fba7cce8823fef63b1b8e42a93ee46120948ab3",
+    "rawAhead": 0,
+    "rawBehind": 58,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "AGENTS.md",
+      "URBANAGENT_CODEX_CONTEXT.md"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "feat/complete-demo-web",
+    "sha": "b7b212e2367badb5cf9444bc4dd9f3f830845d0f",
+    "mergeBase": "b7b212e2367badb5cf9444bc4dd9f3f830845d0f",
+    "rawAhead": 0,
+    "rawBehind": 14,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      ".env.example",
+      "docs/ADMIN_CAPABILITY_MATRIX.md",
+      "public/assets/urbanagent/ASSET_INVENTORY.md",
+      "public/assets/urbanagent/ATTRIBUTION.md",
+      "public/assets/urbanagent/beach-nam-o.jpg",
+      "public/assets/urbanagent/beach-non-nuoc.jpg",
+      "public/assets/urbanagent/coffee-beach-bar.jpg",
+      "public/assets/urbanagent/coffee-garden.jpg",
+      "public/assets/urbanagent/coffee-phin.jpg",
+      "public/assets/urbanagent/dragon-bridge.webp",
+      "public/assets/urbanagent/food-banh-trang-cuon.jpg",
+      "public/assets/urbanagent/food-bun-cha-ca.jpg",
+      "public/assets/urbanagent/food-mi-quang.jpg",
+      "public/assets/urbanagent/golden-bridge-sunset.webp",
+      "public/assets/urbanagent/golden-bridge.webp",
+      "public/assets/urbanagent/my-khe-coastline.webp",
+      "public/assets/urbanagent/nature-hai-van.jpg",
+      "public/assets/urbanagent/night-fireworks.jpg",
+      "public/assets/urbanagent/night-han-river.jpg",
+      "public/assets/urbanagent/night-riverwalk.jpg",
+      "public/assets/urbanagent/preloader/journey-preloader-poster.webp",
+      "public/assets/urbanagent/preloader/journey-preloader.webm",
+      "public/assets/urbanagent/son-tra-peninsula.webp",
+      "src/App.tsx",
+      "src/auth/AuthContext.tsx",
+      "src/auth/authContextValue.ts",
+      "src/components/BrandMark.tsx",
+      "src/components/Layout.tsx",
+      "src/components/preloader/FirstVisitLanguageChooser.tsx",
+      "src/components/preloader/JourneyPreloader.tsx",
+      "src/components/preloader/JourneyPreloaderProvider.tsx",
+      "src/components/preloader/journey-preloader.css",
+      "src/components/ui/ProductPrimitives.tsx",
+      "src/components/ui/ResponsiveImage.tsx",
+      "src/i18n/LanguageContext.tsx",
+      "src/index.css",
+      "src/pages/admin/AdminApp.tsx",
+      "src/pages/admin/AdminRouteGuard.tsx",
+      "src/pages/admin/AdminShell.tsx",
+      "src/pages/admin/AdminViews.tsx",
+      "src/pages/admin/admin.css",
+      "src/pages/admin/adminData.ts",
+      "src/pages/auth/AuthPages.tsx",
+      "src/pages/dashboard/DashboardPage.tsx",
+      "src/pages/landing/LandingPage.tsx",
+      "src/pages/landing/LandingRoutePreview.tsx",
+      "src/pages/urban-agent/GoogleDiscoveryMap.tsx",
+      "src/pages/urban-agent/PoiExperienceLayer.tsx",
+      "src/pages/urban-agent/TravelerFullRouteModal.tsx",
+      "src/pages/urban-agent/TravelerRouteModal.tsx",
+      "src/pages/urban-agent/TripPreviewDayMap.tsx",
+      "src/pages/urban-agent/UrbanAgentPage.tsx",
+      "src/pages/urban-agent/routeVisuals.ts",
+      "src/pages/urban-agent/tripPlaceBridge.ts",
+      "src/services/firebase.ts",
+      "src/services/poiExperienceService.ts",
+      "src/styles/urbanagent-design-system.css",
+      "src/utils/apiClient.ts"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "feat/phase6-p1-partner-readiness",
+    "sha": "a06aa3642e9d156808c739e5ae0275000b3cf96c",
+    "mergeBase": "a06aa3642e9d156808c739e5ae0275000b3cf96c",
+    "rawAhead": 0,
+    "rawBehind": 1,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "src/features/trust/PartnerAvailability.tsx",
+      "src/features/trust/PoiTrustIndicator.tsx",
+      "src/features/trust/trustPresentation.ts",
+      "src/pages/admin/adminData.ts",
+      "tests/phase6/partnerReadiness.test.ts"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "feat/phase6-trust-freshness-resilience",
+    "sha": "a6bd806f3ebca3f833f709b57171ef35e58f9fc9",
+    "mergeBase": "a6bd806f3ebca3f833f709b57171ef35e58f9fc9",
+    "rawAhead": 0,
+    "rawBehind": 5,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "package.json",
+      "src/features/trust/PoiTrustIndicator.tsx",
+      "src/features/trust/trustPresentation.ts",
+      "src/pages/landing/LandingPage.tsx",
+      "src/pages/role/RolePages.tsx",
+      "src/pages/urban-agent/GoogleDiscoveryMap.tsx",
+      "src/pages/urban-agent/TravelerRecommendationPanel.tsx",
+      "src/pages/urban-agent/UrbanAgentPage.tsx",
+      "src/services/poiExperienceService.ts",
+      "src/utils/apiClient.ts",
+      "tests/phase6/trustPresentation.test.ts"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "feat/urban-agent-productization",
+    "sha": "c579ae848102488476f6b92c1f61307d1df71d2b",
+    "mergeBase": "c579ae848102488476f6b92c1f61307d1df71d2b",
+    "rawAhead": 0,
+    "rawBehind": 52,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      ".env.example",
+      "src/auth/AuthContext.tsx",
+      "src/pages/auth/AuthPages.tsx",
+      "src/pages/urban-agent/TripPreviewDayMap.tsx",
+      "src/pages/urban-agent/UrbanAgentPage.tsx"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "fix/code-native-entry-preloader",
+    "sha": "6d9d1b1bd99cada9d553fdc6d82313fe571f100e",
+    "mergeBase": "6d9d1b1bd99cada9d553fdc6d82313fe571f100e",
+    "rawAhead": 0,
+    "rawBehind": 12,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "public/assets/urbanagent/preloader/journey-preloader-poster.webp",
+      "public/assets/urbanagent/preloader/journey-preloader.webm",
+      "src/components/preloader/GlobeFlightAnimation.tsx",
+      "src/components/preloader/JourneyPreloader.tsx",
+      "src/components/preloader/journey-preloader.css"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "fix/feedback-image-upload-performance",
+    "sha": "c4e02b2d29e61408c91d17ea75399d0bd7c921d8",
+    "mergeBase": "c4e02b2d29e61408c91d17ea75399d0bd7c921d8",
+    "rawAhead": 0,
+    "rawBehind": 3,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "src/pages/urban-agent/PoiExperienceLayer.tsx",
+      "src/services/poiExperienceService.ts",
+      "src/services/reviewImageUpload.ts",
+      "tests/reviews/reviewImageUpload.test.ts"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "fix/full-route-external-place-search-ui-cleanup",
+    "sha": "14845334e04500755d70bba2a9a4825c0c40d2d8",
+    "mergeBase": "14845334e04500755d70bba2a9a4825c0c40d2d8",
+    "rawAhead": 0,
+    "rawBehind": 25,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "src/pages/dashboard/DashboardPage.tsx",
+      "src/pages/urban-agent/PoiExperienceLayer.tsx",
+      "src/pages/urban-agent/TravelerFullRouteModal.tsx",
+      "src/pages/urban-agent/TripPreviewDayMap.tsx",
+      "src/pages/urban-agent/UrbanAgentPage.tsx",
+      "src/pages/urban-agent/tripPlaceBridge.ts",
+      "src/pages/urban-agent/tripRoadRoutes.ts",
+      "src/services/poiExperienceService.ts"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "fix/production-demo-auth-search-validation",
+    "sha": "4cbbad721df39a5088e3aca24f0a2a9b87877608",
+    "mergeBase": "4cbbad721df39a5088e3aca24f0a2a9b87877608",
+    "rawAhead": 0,
+    "rawBehind": 10,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "src/auth/AuthContext.tsx",
+      "src/config/runtimeFlags.ts",
+      "src/pages/auth/AuthPages.tsx",
+      "src/pages/urban-agent/PoiExperienceLayer.tsx",
+      "src/services/poiExperienceService.ts",
+      "src/utils/apiClient.ts",
+      "src/utils/searchQueryValidation.ts"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "main",
+    "sha": "3914e1c7b335deccb3d7c2c8162cac2dacb9864e",
+    "mergeBase": "3914e1c7b335deccb3d7c2c8162cac2dacb9864e",
+    "rawAhead": 0,
+    "rawBehind": 0,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "phase0/canonical-baseline",
+    "sha": "f42c937382818d066264c103e41da8452b884f6b",
+    "mergeBase": "f42c937382818d066264c103e41da8452b884f6b",
+    "rawAhead": 0,
+    "rawBehind": 60,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "AGENTS.md",
+      "URBANAGENT_CODEX_CONTEXT.md"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [
+      "phase0/canonical-baseline"
+    ],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "phase2/batch4-itinerary-editing",
+    "sha": "44e8ddfeee40a661408581734c3fc16bdd20cbb6",
+    "mergeBase": "44e8ddfeee40a661408581734c3fc16bdd20cbb6",
+    "rawAhead": 0,
+    "rawBehind": 50,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "src/pages/urban-agent/TripPreviewStopActions.tsx",
+      "src/pages/urban-agent/UrbanAgentPage.tsx"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "phase2/batch5-trip-persistence",
+    "sha": "63605560cf6bdb7d99ebc1e9ba3c67761a188d30",
+    "mergeBase": "63605560cf6bdb7d99ebc1e9ba3c67761a188d30",
+    "rawAhead": 0,
+    "rawBehind": 48,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "src/pages/urban-agent/UrbanAgentPage.tsx",
+      "src/utils/apiClient.ts"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "phase2/batch6-trip-lifecycle",
+    "sha": "07fed5efe08ae90e5ec4d9c3e310dd57981cc43d",
+    "mergeBase": "07fed5efe08ae90e5ec4d9c3e310dd57981cc43d",
+    "rawAhead": 0,
+    "rawBehind": 46,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "src/pages/urban-agent/TripPreviewStopActions.tsx",
+      "src/pages/urban-agent/UrbanAgentPage.tsx"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "phase3/traveler-frontend-rebuild",
+    "sha": "80e0677b34b6a197e5a88438735aa1a1126f0e83",
+    "mergeBase": "80e0677b34b6a197e5a88438735aa1a1126f0e83",
+    "rawAhead": 0,
+    "rawBehind": 44,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "src/App.tsx",
+      "src/components/Layout.tsx",
+      "src/pages/urban-agent/TravelerItineraryViewSwitch.tsx",
+      "src/pages/urban-agent/TripPreviewDayMap.tsx",
+      "src/pages/urban-agent/UrbanAgentPage.tsx"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "phase5/base44-ui-integration",
+    "sha": "a173043393076fdbefe70f5135664e454d59124c",
+    "mergeBase": "a173043393076fdbefe70f5135664e454d59124c",
+    "rawAhead": 0,
+    "rawBehind": 19,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "phase5/stage5a-product-e2e",
+    "sha": "6ced6d4ddc133dea77123016ceed329d029371b2",
+    "mergeBase": "6ced6d4ddc133dea77123016ceed329d029371b2",
+    "rawAhead": 0,
+    "rawBehind": 40,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "src/pages/urban-agent/TripPreviewDayMap.tsx",
+      "src/pages/urban-agent/UrbanAgentPage.tsx",
+      "src/utils/apiClient.ts"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "phase5/stage5d1-agent-scheduler-unification",
+    "sha": "c7d87678ddaf781f08a7c596ed69ca7b30bd611e",
+    "mergeBase": "c7d87678ddaf781f08a7c596ed69ca7b30bd611e",
+    "rawAhead": 0,
+    "rawBehind": 31,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "docs/rebuild/PHASE5_STAGE5D1_AGENT_SCHEDULER_UNIFICATION.md",
+      "src/pages/dashboard/DashboardPage.tsx",
+      "src/pages/urban-agent/PoiExperienceLayer.tsx",
+      "src/pages/urban-agent/TravelerRecommendationPanel.tsx",
+      "src/pages/urban-agent/TravelerRouteModal.tsx",
+      "src/pages/urban-agent/TravelerStopTravelActions.tsx",
+      "src/pages/urban-agent/TripPreviewDayMap.tsx",
+      "src/pages/urban-agent/UrbanAgentPage.tsx",
+      "src/pages/urban-agent/travelerCapabilities.ts",
+      "src/services/poiExperienceService.ts"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "phase5/stage5d-frontend-unification",
+    "sha": "2c50b87fdc011d2e410b78846a8c48e6aea3c0fb",
+    "mergeBase": "2c50b87fdc011d2e410b78846a8c48e6aea3c0fb",
+    "rawAhead": 0,
+    "rawBehind": 38,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      "docs/rebuild/PHASE5_STAGE5D_FRONTEND_UNIFICATION.md",
+      "src/pages/urban-agent/TravelerItineraryViewSwitch.tsx",
+      "src/pages/urban-agent/TravelerRecommendationPanel.tsx",
+      "src/pages/urban-agent/TripPreviewDayMap.tsx",
+      "src/pages/urban-agent/TripPreviewStopActions.tsx",
+      "src/pages/urban-agent/UrbanAgentPage.tsx",
+      "src/pages/urban-agent/travelerPresentation.ts"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  },
+  {
+    "branch": "release/integrated-demo-2026-08",
+    "sha": "33836094146816e881d8737d83b0a5fb5dddbe29",
+    "mergeBase": "33836094146816e881d8737d83b0a5fb5dddbe29",
+    "rawAhead": 0,
+    "rawBehind": 55,
+    "changedFilesInAssociatedPrsOrUniqueCommits": [
+      ".env.example",
+      "package-lock.json",
+      "package.json",
+      "src/App.tsx",
+      "src/auth/AuthContext.tsx",
+      "src/auth/authContextValue.ts",
+      "src/pages/auth/AuthPages.tsx",
+      "src/pages/urban-agent/UrbanAgentPage.tsx",
+      "src/utils/apiClient.ts"
+    ],
+    "uniqueCommits": [],
+    "patchEquivalence": [],
+    "tagsAtTip": [],
+    "deploymentUse": "NOT_VERIFIED",
+    "action": "KEEP"
+  }
+]
